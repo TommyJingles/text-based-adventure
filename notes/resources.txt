@@ -1,0 +1,15 @@
+- github troubles
+    - https://connkat.medium.com/setting-up-multiple-ssh-keys-on-one-computer-75f068d972d9
+- io
+    - unicode: https://discord.com/channels/605571803288698900/1165773790068883517
+    - https://zig.news/kristoff/how-to-add-buffering-to-a-writer-reader-in-zig-7jd
+    - https://tforgione.fr/posts/ansi-escape-codes/
+    - https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
+    - https://ziggit.dev/t/how-to-clear-terminal/88/4
+- string stuff
+    - https://github.com/JakubSzark/zig-string
+    - zig.news/kristoff/how-to-add-buffering-to-a-writer-reader-in-zig-7jd
+
+
+examples
+https://www.youtube.com/watch?v=lI6S2-icPHE
