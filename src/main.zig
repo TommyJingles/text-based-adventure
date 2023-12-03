@@ -1,6 +1,7 @@
 const std = @import("std");
-const Terminal = @import("terminal.zig").Terminal;
-const Player = @import("player.zig").Player;
+const Terminal = @import("./terminal.zig").Terminal;
+const ansi = @import("./ansi.zig");
+const Player = @import("./player.zig").Player;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -9,12 +10,28 @@ pub fn main() !void {
     var terminal = Terminal.init(allocator);
     defer terminal.deinit();
 
-    try terminal.write("What is your first name? : ", .{});
-    const fname = try terminal.read();
-    try terminal.write("What is your first name? : ", .{});
-    const lname = try terminal.read();
+    try terminal.write(ansi.style.ResetAll);
+    try terminal.write("What is your ");
+    try terminal.write(ansi.style.FgBlue);
+    try terminal.write(ansi.style.Bold);
+    try terminal.write("First Name");
+    try terminal.write(ansi.style.ResetAll);
+    try terminal.write(" : ");
+    try terminal.write(ansi.style.FgGreen);
+    try terminal.flush();
+    _ = try terminal.read();
 
-    var player = Player{ .first_name = fname, .last_name = lname };
+    try terminal.write(ansi.style.ResetAll);
+    try terminal.write("What is your ");
+    try terminal.write(ansi.style.FgBlue);
+    try terminal.write(ansi.style.Bold);
+    try terminal.write("Last Name");
+    try terminal.write(ansi.style.ResetAll);
+    try terminal.write(" : ");
+    try terminal.write(ansi.style.FgGreen);
+    try terminal.flush();
+    _ = try terminal.read();
 
-    try terminal.write("Player: first_name = \"{s}\", last_name = \"{s}\"", player);
+    try terminal.write(ansi.style.ResetAll);
+    try terminal.dump_input();
 }

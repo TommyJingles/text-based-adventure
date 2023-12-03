@@ -1,0 +1,10 @@
+TODO:
+🗸 basic write and read
+🗸 unicode support
+🗸 ansi + buffered write (colors, cursor/line control)
+string dictionary: comptime strings, saving user input, populate from file
+relational / graph data structure (many types of edges)
+commands
+'entity' data structure (do I go full blown ecs?)
+locations, paths, items, stationaries, actors, interactions
+background story, lore, etc
