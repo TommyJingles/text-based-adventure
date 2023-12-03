@@ -1,10 +1,37 @@
 TODO:
 🗸 basic write and read
 🗸 unicode support
-🗸 ansi + buffered write (colors, cursor/line control)
-string dictionary: comptime strings, saving user input, populate from file
-relational / graph data structure (many types of edges)
-commands
-'entity' data structure (do I go full blown ecs?)
-locations, paths, items, stationaries, actors, interactions
-background story, lore, etc
+🗸 basic ansi + buffered write (colors, cursor/line control)
+🗸 basic commands
+refine ansi, allow for terminal method chaining? 
+    confirm? [Y/N]
+    try term.style({.bold, .red})
+            .write("hello")
+            .style({.resetAll})
+            .write(" world")
+            .flush();
+    maybe xml templating?
+
+command parameters
+    command arg arg arg
+    space deliminiated, should I require quotes? dot notation?
+        say "*wave* hi ${player.name}"
+    confirm? [Y/N]
+
+app fsm, state, etc
+
+menus
+
+string dictionary? stores comptime strings, saving user input, populate from file
+    this way instances of entities don't need their own array/list, just a slice
+serialization
+
+'entity' data structure
+    locations, paths, items, stationaries, actors, interactions (do I go full blown ecs?)
+    relational / graph data structure (many types of edges)
+    prefab, scene
+
+game dev
+    lore / background
+    commands, game rules
+    randomized templates and procedural descriptions
