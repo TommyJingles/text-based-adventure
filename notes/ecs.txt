@@ -1,51 +1,17 @@
-// functions, allocators, mutexes, iterators, and the like omitted for brevity
+Using this code as a starting point: https://devlog.hexops.com/2022/lets-build-ecs-part-2-databases/
 
-list = std.ArrayList
-
-type_id = entity_id = arch_id = shared_id = u32             // or whatever
-
-types --> hashmap(type_id, type)                            // casting utils, may not be hashmap as type is comptime-only, type_id is hash(string)
-
-column --> id: type_id
-           count: u32
-           data: list(u8)
-
-archetype --> id: arch_id
-              entities: list(entity_ids)
-              columns: list(shared_id) hashmap(column)      // can I make this a fixed-sized array at runtime?
-
-entity --> hashmap(type_id, []u8)                           // casting utils
-
-EntityPointer --> arch_id: arch_id
-                  row_index: u32
-
-system --> id: sys_id,
-           // init, run, deinit, etc
-
-query --> components:                                       // variants for: types, archetypes, entities, systems, events, etc.
-            has: list(type_id)                              // I think comptime and anon structs will durastically simplify this
-            not: list(type_id)
-          shared:
-            has: list(type_id)
-            not: list(type_id)
-          ids: list(entity_id)                              // restricts query to these entities
-          archetypes: list(arch_id)                         // restricts query to these archetypes
-          
-world -->
-    id: u32                                                 // hash of name?
-    name: []const u8,
-    app: *app
-    archetypes: hashmap(arch_id, *archeytype)
-    entity_map: hashmap(entity_id, EntityPointer)
-    shared_data: hashmap(shared_id, .{type_id, []u8})       // shared by all worlds? separate global_data that is shared?
-    systems: hashmap(sys_id, system)
-    execution: ???
-    events: ???                                             // shared by all worlds? separate global_events this is shared?
-
-app -->
-    types: types
-    worlds: hashmap(world_id, world)
-    app_data: hashmap(global_data_id, .{type_id, []u8})     // caller must cast to expected type
-    jobs: ???                                               // thread pool shared by all worlds?
-    app_events: ???
-    log: ???
+Ideas:
+  - Types
+    - I'll map the component names to a std.hash.XxHash32
+    - the runtime type info generates a function for reacting the ErasedComponentStorage
+  - Archetype
+    - remove isn't working quite as expected (swapback entity index not updating the Pointer)?
+  - Some way to 'collect' all components of an entity, json-like printing
+    - hashmap(TypeID, AnyPointer) from https://github.com/MasterQ32/any-pointer 
+  - Add Shared Data to Archetype
+  - Queries
+  - World
+    - entities, systems, events, shared data
+  - Strings
+    - Manager? String type? utility functions? regex?
+  - Thread Pool / Thread Safety?
