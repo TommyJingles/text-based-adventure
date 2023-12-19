@@ -6,6 +6,7 @@
     - https://tforgione.fr/posts/ansi-escape-codes/
     - https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
     - https://ziggit.dev/t/how-to-clear-terminal/88/4
+    - https://github.com/kubkon/zig-yaml 
 - string stuff
     - https://github.com/JakubSzark/zig-string
     - zig.news/kristoff/how-to-add-buffering-to-a-writer-reader-in-zig-7jd

@@ -3,15 +3,21 @@ Using this code as a starting point: https://devlog.hexops.com/2022/lets-build-e
 Ideas:
   - Types
     - I'll map the component names to a std.hash.XxHash32
-    - the runtime type info generates a function for reacting the ErasedComponentStorage
+    - the runtime type info generates a function for reacting the ErasedComponentStorage?
+  - World
+    - a struct to bundle everything, maybe some helper functions?
   - Archetype
     - remove isn't working quite as expected (swapback entity index not updating the Pointer)?
+  - Entities
+    - SharedComponents
+    - Query
   - Some way to 'collect' all components of an entity, json-like printing
     - hashmap(TypeID, AnyPointer) from https://github.com/MasterQ32/any-pointer 
   - Add Shared Data to Archetype
-  - Queries
-  - World
-    - entities, systems, events, shared data
+  - Systems
+  - Jobs?
+    - thread pool, parallel functionality
+    - idk if I should concern myself with multithreading yet tbh
   - Strings
-    - Manager? String type? utility functions? regex?
-  - Thread Pool / Thread Safety?
+    - String type? Storage? utility functions? regex?
+    - instead of components storing slices, they just store a u32 hash for lookup?
