@@ -56,41 +56,33 @@ pub const EntityID = u32;
 
 pub const void_archetype_hash = std.math.maxInt(u32);
 
-/// Represents the storage for a single type of component within a single type of entity.
-///
+/// Represents the storage for a single type of component within a unique archetype.
 /// Database equivalent: a column within a table.
 pub fn Column(comptime Component: type) type {
     return struct {
-        /// A reference to the total number of entities with the same type as is being stored here.
         total_rows: *usize,
 
-        /// The actual densely stored component data.
         data: std.ArrayListUnmanaged(Component) = .{},
 
         const Self = @This();
 
-        pub fn deinit(storage: *Self, allocator: Allocator) void {
-            storage.data.deinit(allocator);
+        pub fn deinit(self: *Self, allocator: Allocator) void {
+            self.data.deinit(allocator);
         }
 
-        // If the storage of this component is sparse, it is turned dense as calling this method
-        // indicates that the caller expects to set this component for most entities rather than
-        // sparsely.
-        pub fn set(storage: *Self, allocator: Allocator, row_index: u32, component: Component) !void {
-            if (storage.data.items.len <= row_index) try storage.data.appendNTimes(allocator, undefined, storage.data.items.len + 1 - row_index);
-            storage.data.items[row_index] = component;
+        pub fn set(self: *Self, allocator: Allocator, row_index: u32, component: Component) !void {
+            if (self.data.items.len <= row_index) try self.data.appendNTimes(allocator, undefined, self.data.items.len + 1 - row_index);
+            self.data.items[row_index] = component;
         }
 
-        /// Removes the given row index.
-        pub fn remove(storage: *Self, row_index: u32) void {
-            if (storage.data.items.len > row_index) {
-                _ = storage.data.swapRemove(row_index);
+        pub fn remove(self: *Self, row_index: u32) void {
+            if (self.data.items.len > row_index) {
+                _ = self.data.swapRemove(row_index);
             }
         }
 
-        /// Gets the component value for the given entity ID.
-        pub inline fn get(storage: Self, row_index: u32) Component {
-            return storage.data.items[row_index];
+        pub inline fn get(self: *Self, row_index: u32) Component {
+            return self.data.items[row_index];
         }
 
         pub inline fn copy(dst: *Self, allocator: Allocator, src_row: u32, dst_row: u32, src: *Self) !void {
@@ -142,8 +134,8 @@ pub const Archetype = struct {
 
     pub fn deinit(self: *Archetype) void {
         var itr = self.columns.valueIterator();
-        while (itr.next()) |erased| {
-            erased.deinit(erased.ptr, self.allocator);
+        while (itr.next()) |any_column| {
+            any_column.deinit(any_column.ptr, self.allocator);
         }
         self.entity_ids.deinit(self.allocator);
         self.columns.deinit(self.allocator);
@@ -166,9 +158,9 @@ pub const Archetype = struct {
     /// Sets the value of the named component (column) for the given row in the table. Realizes the
     /// deferred allocation of column storage for N entities (storage.counter) if it is not already.
     pub fn set(self: *Archetype, row_index: u32, component: anytype) !void {
-        var component_storage_erased = self.columns.get(id(@TypeOf(component))).?;
-        var component_storage = AnyColumn.cast(component_storage_erased.ptr, @TypeOf(component));
-        try component_storage.set(self.allocator, row_index, component);
+        var anyColumn = self.columns.get(id(@TypeOf(component))).?;
+        var column = AnyColumn.cast(anyColumn.ptr, @TypeOf(component));
+        try column.set(self.allocator, row_index, component);
     }
 
     /// Removes the specified row. See also the `Entity.delete()` helper.
@@ -178,8 +170,8 @@ pub const Archetype = struct {
     pub fn remove(self: *Archetype, row_index: u32) !void {
         _ = self.entity_ids.swapRemove(row_index);
         var itr = self.columns.valueIterator();
-        while (itr.next()) |component_storage| {
-            component_storage.remove(component_storage.ptr, row_index);
+        while (itr.next()) |anyColumn| {
+            anyColumn.remove(anyColumn.ptr, row_index);
         }
     }
 };
@@ -273,7 +265,7 @@ pub const Entities = struct {
     }
 
     /// Returns a new entity.
-    pub fn new(self: *Entities) !EntityID {
+    pub fn create(self: *Entities) !EntityID {
         const new_id = self.nextEntityID;
         self.nextEntityID += 1;
 
@@ -298,7 +290,7 @@ pub const Entities = struct {
     }
 
     /// Removes an entity.
-    pub fn remove(self: *Entities, entity: EntityID) !void {
+    pub fn delete(self: *Entities, entity: EntityID) !void {
         var archetype = self.archetypeByID(entity);
         const ptr = self.pointers.get(entity).?;
 
@@ -313,7 +305,7 @@ pub const Entities = struct {
         // Perform a swap removal to remove our entity from the archetype table.
         try archetype.remove(ptr.row_index);
 
-        try self.remove(entity);
+        try self.delete(entity);
     }
 
     /// Sets the named component to the specified value for the given entity,
@@ -519,7 +511,7 @@ test "test_entities" {
     var entities = try Entities.init(allocator);
     defer entities.deinit();
 
-    const player = try entities.new();
+    const player = try entities.create();
 
     // Define component types, any Zig type will do!
     // A location component.
@@ -530,19 +522,19 @@ test "test_entities" {
     };
 
     const Name = []const u8;
-    _ = Name;
 
-    // try entities.setComponent(player, @as(Name, "jane"));
+    try entities.setComponent(player, @as(Name, "jane"));
     try entities.setComponent(player, Location{});
-    // try entities.setComponent(player, @as(Name, "joe"));
+    try entities.setComponent(player, @as(Name, "joe"));
 
-    // try testing.expectEqual(Location{}, entities.getComponent(player, Location).?);
-    // try testing.expectEqual(@as(Name, "joe"), entities.getComponent(player, Name).?);
+    try testing.expectEqual(Location{}, entities.getComponent(player, Location).?);
+    try testing.expectEqual(@as(Name, "joe"), entities.getComponent(player, Name).?);
 
-    // try entities.removeComponent(player, Location);
-    // try testing.expect(entities.getComponent(player, Location) == null);
+    try entities.removeComponent(player, Location);
+    var loc = entities.getComponent(player, Location).?;
+    _ = loc;
 
-    // try entities.remove(player);
+    try entities.delete(player);
 }
 
 pub const Systems = struct {};
