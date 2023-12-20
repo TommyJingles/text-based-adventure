@@ -16,15 +16,15 @@ Ideas:
   - Entities
     - world: *World
       - access shared_data, events, etc
+    - add / remove multiple components at once
     - Archetype
       - shared_data (list of ids)
         - factor this into archetype hash
     - Querying
       - tuple https://ziglearn.org/chapter-1/#anonymous-structs
-      - var query = Query(?ArrayList(u32)).has(.{}).has_shared(.{}).not(.{}).not_shared(.{});
-      - query(param) null is 'all', or pass a list of archetype hashes
-      - query.collect().iterator()
       - maybe I want to order the filtering for user optimization?
+        var query = Query.create(.{...});   // comptime: use types, runtime: use type_ids
+        var itr = query.iterator();         // or .collect() to get an ArrayList(*Archetype)
     - Some way to 'bundle' all components of an entity, json-like printing
       - hashmap(u32, AnyPointer) from https://github.com/MasterQ32/any-pointer 
       - switch case value --> id(ComponentType) ?

@@ -11,6 +11,11 @@
     - https://github.com/JakubSzark/zig-string
     - zig.news/kristoff/how-to-add-buffering-to-a-writer-reader-in-zig-7jd
 
+- discord
+    - mine
+        - https://discord.com/channels/605571803288698900/1186811574506246217
+    - useful
+        - tuples    https://discord.com/channels/605571803288698900/1185334125826146334
 
 examples
 https://www.youtube.com/watch?v=lI6S2-icPHE

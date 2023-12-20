@@ -1,0 +1,8 @@
+Brainstorming gameplay: components, compostion, systems
+
+
+
+Prefabs
+    - unsure if I want to use JSON files or id mapped functions to represent entity prefabs
+    - ids are hash values of a prefab name?
+    - entities have a prefab {id} component?

@@ -6,50 +6,204 @@ const testing = std.testing;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-// Not 100% sure how I want to do this yet, but I need a way to convert a Type to an ID
-// thinking of using std.hash.XxHash32 and the Component name
-// pub const Types = struct {
-//     // pub const TypeInfo = struct {name: []const u8, initable: bool, ?}
-//     allocator: std.mem.Allocator,
-//     map: std.AutoArrayHashMapUnmanaged(u32, []const u8), // u32, TypeInfo
-
-//     pub fn init(alloc: std.mem.Allocator) Types {
-//         return .{ .allocator = alloc, .map = std.AutoArrayHashMapUnmanaged(u32, []const u8){} };
-//     }
-
-//     pub fn deinit(self: *Types) void {
-//         self.map.deinit(self.allocator);
-//     }
-
-//     pub fn id(self: *Types, comptime typ: type) u32 {
-//         _ = self;
-//         return std.hash.XxHash32.hash(0, @typeName(typ));
-//     }
-
-//     pub fn get(self: *Types, type_id: u32) ?[]const u8 {
-//         return self.map.get(type_id);
-//     }
-
-//     pub fn register(self: *Types, comptime typ: type) !u32 {
-//         const type_id = self.id(typ);
-//         try self.map.put(self.allocator, type_id, @typeName(typ));
-//         return type_id;
-//     }
-// };
-
-// test "types_test" {
-//     var types = Types.init(testing.allocator);
-//     defer types.deinit();
-//     const MyComponent = struct { x: f32, y: f32, z: f32 };
-//     const id = try types.register(MyComponent);
-//     std.debug.print("\nname: {s},\tid: {}\n", .{ types.get(id).?, id });
-// }
-
-pub const id = (struct {
+/// convert a type to a u32 hash of it's name
+pub const type_id = (struct {
     pub fn hash(comptime typ: type) u32 {
         return std.hash.XxHash32.hash(0, @typeName(typ));
     }
 }).hash;
+
+/// convert a type to a u32 hash of it's name
+pub const str_id = (struct {
+    pub fn hash(str: []const u8) u32 {
+        return std.hash.XxHash32.hash(0, str);
+    }
+}).hash;
+
+/// stores a single object of type T for each T added
+/// taken from: https://github.com/prime31/zig-ecs/blob/master/src/ecs/type_store.zig
+pub const Blackboard = struct {
+    map: std.AutoHashMap(u32, []u8),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) Blackboard {
+        return Blackboard{
+            .map = std.AutoHashMap(u32, []u8).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Blackboard) void {
+        var iter = self.map.valueIterator();
+        while (iter.next()) |val_ptr| {
+            self.allocator.free(val_ptr.*);
+        }
+        self.map.deinit();
+    }
+
+    /// adds instance, returning a pointer to the item as it lives in the store
+    pub fn add(self: *Blackboard, instance: anytype) void {
+        const bytes = self.allocator.alloc(u8, @sizeOf(@TypeOf(instance))) catch unreachable;
+        @memcpy(bytes, std.mem.asBytes(&instance));
+        _ = self.map.put(type_id(@TypeOf(instance)), bytes) catch unreachable;
+    }
+
+    pub fn get(self: *Blackboard, comptime T: type) *T {
+        if (self.map.get(type_id(T))) |bytes| {
+            return @as(*T, @ptrCast(@alignCast(bytes)));
+        }
+        unreachable;
+    }
+
+    pub fn getConst(self: *Blackboard, comptime T: type) T {
+        return self.get(T).*;
+    }
+
+    pub fn getOrAdd(self: *Blackboard, comptime T: type) *T {
+        if (!self.has(T)) {
+            const instance = std.mem.zeroes(T);
+            self.add(instance);
+        }
+        return self.get(T);
+    }
+
+    pub fn remove(self: *Blackboard, comptime T: type) void {
+        if (self.map.get(type_id(T))) |bytes| {
+            self.allocator.free(bytes);
+            _ = self.map.remove(type_id(T));
+        }
+    }
+
+    pub fn has(self: *Blackboard, comptime T: type) bool {
+        return self.map.contains(type_id(T));
+    }
+};
+
+test "Blackboard" {
+    const Vector = struct { x: f32 = 0, y: f32 = 0, z: f32 = 0 };
+
+    var bb = Blackboard.init(std.testing.allocator);
+    defer bb.deinit();
+
+    const orig = Vector{ .x = 5, .y = 6, .z = 8 };
+    bb.add(orig);
+    try std.testing.expect(bb.has(Vector));
+    try std.testing.expectEqual(bb.get(Vector).*, orig);
+
+    const v = bb.get(Vector);
+    try std.testing.expectEqual(v.*, Vector{ .x = 5, .y = 6, .z = 8 });
+    v.*.x = 666;
+
+    const v2 = bb.get(Vector);
+    try std.testing.expectEqual(v2.*, Vector{ .x = 666, .y = 6, .z = 8 });
+
+    bb.remove(Vector);
+    try std.testing.expect(!bb.has(Vector));
+
+    const v3 = bb.getOrAdd(u32);
+    try std.testing.expectEqual(v3.*, 0);
+    v3.* = 777;
+
+    _ = bb.get(u32);
+    try std.testing.expectEqual(v3.*, 777);
+}
+
+/// Same thing as TypeStore, but a provided "name" allows for storing
+/// multiple of the same type so long as the name is unique
+pub const NamedBlackboard = struct {
+    pub const BlackboardValue = struct { type_id: u32, bytes: []u8 };
+
+    map: std.AutoHashMap(u32, BlackboardValue),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) NamedBlackboard {
+        return NamedBlackboard{
+            .map = std.AutoHashMap(u32, BlackboardValue).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *NamedBlackboard) void {
+        var iter = self.map.valueIterator();
+        while (iter.next()) |bv| {
+            self.allocator.free(bv.*.bytes);
+        }
+        self.map.deinit();
+    }
+
+    pub fn add(self: *NamedBlackboard, name: []const u8, instance: anytype) void {
+        const sid = str_id(name);
+        const tid = type_id(@TypeOf(instance));
+        const bytes = self.allocator.alloc(u8, @sizeOf(@TypeOf(instance))) catch unreachable;
+        @memcpy(bytes, std.mem.asBytes(&instance));
+        _ = self.map.put(sid, BlackboardValue{ .type_id = tid, .bytes = bytes }) catch unreachable;
+    }
+
+    pub fn get(self: *NamedBlackboard, name: []const u8, comptime T: type) *T {
+        const sid = str_id(name);
+        const tid = type_id(T);
+        if (self.map.get(sid)) |bv| {
+            if (bv.type_id == tid) {
+                return @as(*T, @ptrCast(@alignCast(bv.bytes)));
+            }
+        }
+        unreachable;
+    }
+
+    pub fn getConst(self: *NamedBlackboard, name: []const u8, comptime T: type) T {
+        return self.get(name, T).*;
+    }
+
+    pub fn getOrAdd(self: *NamedBlackboard, name: []const u8, comptime T: type) *T {
+        const sid = str_id(name);
+        if (!self.has(sid)) {
+            const instance = std.mem.zeroes(T);
+            self.add(name, instance);
+        }
+        return self.get(name, T);
+    }
+
+    pub fn remove(self: *NamedBlackboard, name: []const u8) void {
+        const sid = str_id(name);
+        if (self.map.get(sid)) |bv| {
+            self.allocator.free(bv.bytes);
+            _ = self.map.remove(sid);
+        }
+    }
+
+    pub fn has(self: *NamedBlackboard, name: []const u8) bool {
+        return self.map.contains(str_id(name));
+    }
+};
+
+test "NamedBlackboard" {
+    const Vector = struct { x: f32 = 0, y: f32 = 0, z: f32 = 0 };
+
+    const vector1 = Vector{ .x = 1, .y = 2, .z = 3 };
+
+    const vector2 = Vector{ .x = 4, .y = 5, .z = 6 };
+
+    var nbb = NamedBlackboard.init(std.testing.allocator);
+    defer nbb.deinit();
+
+    nbb.add("MyVector", vector1);
+    try std.testing.expect(nbb.has("MyVector"));
+    try std.testing.expectEqual(nbb.get("MyVector", Vector).*, vector1);
+
+    nbb.add("OtherVector", vector2);
+    try std.testing.expect(nbb.has("OtherVector"));
+    try std.testing.expectEqual(nbb.get("OtherVector", Vector).*, vector2);
+
+    const v1 = nbb.get("MyVector", Vector);
+    try std.testing.expectEqual(v1.*, Vector{ .x = 1, .y = 2, .z = 3 });
+    v1.*.x = 555;
+
+    const v1_1 = nbb.get("MyVector", Vector);
+    try std.testing.expectEqual(v1_1.*, Vector{ .x = 555, .y = 2, .z = 3 });
+
+    nbb.remove("MyVector");
+    try std.testing.expect(!nbb.has("MyVector"));
+}
 
 /// An entity ID uniquely identifies an entity globally within an Entities set.
 pub const EntityID = u32;
@@ -158,7 +312,7 @@ pub const Archetype = struct {
     /// Sets the value of the named component (column) for the given row in the table. Realizes the
     /// deferred allocation of column storage for N entities (storage.counter) if it is not already.
     pub fn set(self: *Archetype, row_index: u32, component: anytype) !void {
-        var anyColumn = self.columns.get(id(@TypeOf(component))).?;
+        var anyColumn = self.columns.get(type_id(@TypeOf(component))).?;
         var column = AnyColumn.cast(anyColumn.ptr, @TypeOf(component));
         try column.set(self.allocator, row_index, component);
     }
@@ -313,7 +467,7 @@ pub const Entities = struct {
     /// table if required.
     pub fn setComponent(self: *Entities, entity: EntityID, component: anytype) !void {
         var archetype = self.archetypeByID(entity);
-        var cid = id(@TypeOf(component));
+        var cid = type_id(@TypeOf(component));
         // Determine the old hash for the archetype.
         const old_hash = archetype.hash;
 
@@ -352,7 +506,7 @@ pub const Entities = struct {
                 assert(self.archetypes.swapRemove(new_hash));
                 return err;
             };
-            new_archetype.columns.put(self.allocator, id(@TypeOf(component)), erased) catch |err| {
+            new_archetype.columns.put(self.allocator, type_id(@TypeOf(component)), erased) catch |err| {
                 assert(self.archetypes.swapRemove(new_hash));
                 return err;
             };
@@ -415,7 +569,7 @@ pub const Entities = struct {
     pub fn getComponent(self: *Entities, entity: EntityID, comptime Component: type) ?Component {
         var archetype = self.archetypeByID(entity);
 
-        var component_storage_erased = archetype.columns.get(id(Component)) orelse return null;
+        var component_storage_erased = archetype.columns.get(type_id(Component)) orelse return null;
 
         const ptr = self.pointers.get(entity).?;
         var component_storage = AnyColumn.cast(component_storage_erased.ptr, Component);
@@ -424,9 +578,9 @@ pub const Entities = struct {
 
     /// Removes the component from the entity, or noop if it doesn't have such a component.
     pub fn removeComponent(self: *Entities, entity: EntityID, component: anytype) !void {
-        var cid = id(@TypeOf(component));
+        var cid = type_id(@TypeOf(component));
         var archetype = self.archetypeByID(entity);
-        if (!archetype.columns.contains(id(component))) return;
+        if (!archetype.columns.contains(type_id(component))) return;
 
         // Determine the old hash for the archetype.
         const old_hash = archetype.hash;
