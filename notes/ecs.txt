@@ -12,7 +12,8 @@ Ideas:
     - SharedComponents
     - Query
   - Some way to 'collect' all components of an entity, json-like printing
-    - hashmap(TypeID, AnyPointer) from https://github.com/MasterQ32/any-pointer 
+    - hashmap(u32, AnyPointer) from https://github.com/MasterQ32/any-pointer 
+    - switch case value --> id(ComponentType) ?
   - Add Shared Data to Archetype
   - Systems
   - Jobs?

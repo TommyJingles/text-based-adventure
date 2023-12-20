@@ -1,0 +1,110 @@
+Gameplay
+	- text-based, uses console / terminal
+    - player enters commands, exe processes it and displays feedback.
+    - inspired by: Dungeons & Dragons, Monster Hunter, and Age of Empires
+    - There is no 'end game', only to see how long a player can survive and thrive.
+		- The game gets harder over time. One or more Major Events can occur simultaneously. 
+	- Settings
+		- fictional creatures, magic, and 'non-realistic' stuff can be toggled during world creation
+
+world generation
+	- The 'world' is defined by a graph (nodes and edges)
+        - different node and edge types
+        - nodes and edges are entities? seems like a lot of jumping around in memory
+        - Actors (Player, NPCs, Mobs) can move bewteen locations (nodes) if they are connected (edges)
+        - Locations (nodes) can have a list of Items, Actors, Statonaries (think anvil), etc
+        - Connections (edges) can be locked (think door), or not traversable (You can't 'go' to a building, you can go to its entrance room)
+    - Major Events	
+		- monsters (attacks by beasts)
+		- factions (war, treachery, bandits)
+		- pestilence (plagues)
+		- famine (bugs, drought)
+        - natural disasters (earthquakes, wildfires, bad weather)
+	- Side Quests
+		- fetch quests (X needs N items in Y days)
+		- handyman quests (fix X, wrangle Y)
+		- hunter quests (slay X, capture Y)
+		- diplomatic quests (get X to align|support|trade with Y)
+		- commerce quests (increase production by X, secure new trade partner in Y)
+    - Exploration
+        - ruins, caves, catacombs, wilderness landmarks, a building, etc
+		
+Baby Steps
+	- I'm going to start small: a single village, nearby wilderness regions, and player's farm
+		- wilderness regions are like 'biomes' and 'zones' in old-school Monster Hunter games
+	- Player can tend to the farm, trade with villagers, take on quests in the wilderness, or go out there and forage.
+	- In time I'll add other villages, kingdoms, each territory with unique environments / wilderness
+	- Then an economy, diplomacy system, and the like
+
+Player Commands
+    - I'm hoping for a natural feel: I sit down next to Mark and say "Did you see what Lucy did?"
+    - it maybe more like cmd line style
+
+Crafting
+	- I think there's a handful of things an Actor can craft 'by hand', but the rest require stationaries. All require items.
+	- example: an anvil (smithing). a barrel (brewing). 
+	- stationaries have requirements: need a hammer to use an anvil + need hot metal to use the hammer on.
+	- perhaps crafting certain items requires a smithing score (dice roll + skill + advantage from smithing kit?)
+	- Items have quality scores which affect their value, abilities, etc.
+
+Food & Drink
+	- I want ingredients to give some buffs/nerfs
+	- Recipes (combining ingredients, prep methods) produces different buffs/nerfs
+	- culunary skill check
+
+Economics / Trade
+	- I want to model the entire world, trade, goods, services, you name it.
+		- per item / service: scarcity, skill, time, cost of transport, markup + supply and demand
+	- This will be a Macro AI, simulating all sorts of things at a high level (Micro AI is per Actor)
+
+Farming
+	- a crop plot gets a seed per square unit
+	- crop plots can be NxM units in size
+	- crop types have various stages, requirements: neutrients, hydration, sunlight, etc
+	- various tools can be used, as well as driving livestock into a crop plot.
+	- livestock can be penned / corralled
+	- need logic for creating farmland from various biomes (if possible)
+	
+Construction
+	- I think it would be cool for Players to build where ever, multiple properties, expandable.
+	- stations are like anvils, but I think I'd have another for crop plots?
+	- creating roads / paths would be smart. Maybe irrication ditches?
+	- requires materials, skill level, extra hands (recruited help), machines (pulley system, etc), time
+
+Dialog
+	- I am really hoping this is close to a chatbot, maybe even chat gpt, but we'll see
+	- I may have to go for pre-scripted dialog trees with fixed player communication
+		- could shake it up with varying the sentences so long as they carry the same meaning.
+	- how to make procedural?
+
+Traveling
+	- I need a way to simulate the world at varying speeds
+	- need fideltiy during Actor interaction, fast summary while 'fast traveling'.
+		- fast traveling needs to be be paired with a summary too
+
+Background
+	- a lot of background options, each will modify your starting build
+	- pros/cons to each option
+
+Time
+	- everything takes time and energy. there's a running clock down to the second.
+	- some commands are free, such as listing available options for the Actor
+
+Combat
+	- initiative-based
+	- abilities (such as swing axe, sheild bash, etc)
+		- abilities cost energy, require things such as a weapon, so on.
+	- A description of an attack is offered, giving the target to pick defense ability (or none).
+	- states such as: proned, stunned, dazed, disarmed, ...
+
+Pets and Allies
+	- It should be possible to give commands to those you expect to listen, but they may ignore you.
+
+Commanding Forces
+	- I need a way for the player to command huge numbers, resolving the battlefield
+
+Dying
+	- best find a spouse and have offspring. Those are your 'respawns' when you die.
+	- if you're kids aren't old enough, you can respawn as a different relative (a brother, a nephew)
+	- if no relative, you are a fresh spawn. You inherit nothing from your past person.
+    - 
