@@ -1,28 +1,6 @@
 TODO: 
 
-ECS
-    - shared components
-    - some way to 'bundle' all data for an entity
-      - .{id, archetype, []shared_ids, components: Blackboard}
-      - blackboard values are *T maybe? A new TypedPointerBlackboard?
-      - util fn to apply component values back to archetype columns.
-    - handle internal component .init(alloc) and .deinit(alloc) where applicable
-    - queries
-        from(archetype ids, or null for 'all of them')
-        has(component ids)
-        has_shared(shared component ids)
-        none(component ids)
-        none_shared(shared component ids)
-        collect()
-        iterator()
-    - systems
-      - interface like AnyColumn
-      - execution order
-
-Prefabs
-    - a 'whole entity' with predefined values to clone
-    - used as resource for redundant and unchanging data,
-      a definition of an apple doesn't need to be on every instance.
-    - need to be careful when renaming a prefab as it changes it's id,
-      may need a tool which looks for the old id and changes it.
-    - 
+ECS v2
+Custom string parsing
+  "This is a  <red>{prefab.name}</red> with durability of <rgb col="123,213,46">${durability}</rgb>"
+Better Rendering

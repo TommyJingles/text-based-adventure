@@ -1,38 +1,14 @@
 Using this code as a starting point: https://devlog.hexops.com/2022/lets-build-ecs-part-2-databases/
 
-Ideas:
-  - Types
-    - the runtime type info has a function for reacting the AnyColumn? Column
-    - utils for checking if component has init(allocator) and deinit(allocator)
-  - World
-    - shared_data: map(u32, AnyPointer) https://github.com/MasterQ32/any-pointer 
-      - Strings
-        - String type? Storage? utility functions? regex?
-        - instead of components storing slices, they just store a u32 hash for lookup?
-    - Events?
-      - immediate, sync point (like 'end of frame' consumption)
-      - maybe systems 'subscribe' to events during their init()?
-          - a 'master' system fires said events?
-  - Entities
-    - world: *World
-      - access shared_data, events, etc
-    - add / remove multiple components at once
-    - Archetype
-      - shared_data (list of ids)
-        - factor this into archetype hash
-    - Querying
-      - tuple https://ziglearn.org/chapter-1/#anonymous-structs
-      - maybe I want to order the filtering for user optimization?
-        var query = Query.create(.{...});   // comptime: use types, runtime: use type_ids
-        var itr = query.iterator();         // or .collect() to get an ArrayList(*Archetype)
-    - Some way to 'bundle' all components of an entity, json-like printing
-      - hashmap(u32, AnyPointer) from https://github.com/MasterQ32/any-pointer 
-      - switch case value --> id(ComponentType) ?
-  - Systems
-    - System interface (like AnyColumn)?
-    - map (u32, System)
-    - execution order (list of ids, later on list of list of ids which can be run in parallel and 'go wide')
-  - Parallel
-    - thread pool, jobs
-    - some way to make Entities thread safe
-    - EntitiesCommandBuffer (thread-safe queue)?
+Refactor
+  - Types struct, maps type names to type ids.
+  - Archetypes gain a list of shared_ids, column_keys, columns is just an ArrayList(Column)
+  - shared_ids and column_keys are sorted asc at Archetype creation, assumed sorted from then on
+  - Archetypes fn to return: EntityPayload -> .{id: EntityID, components: HashMapUnmanaged(TypeID, *[]u8), shared: ArrayList(SharedID)}
+  - Remove AnyColumn, just use Column, data is just an ArrayList(u8), CRUD ops are bytes only? casting happens in Archetypes.
+  - Entity Queries, used for iteration, entity testing. 
+    .has() .none() .has_shared() .none_shared() .where(callback) .test(entity) .testAll(entities) .run() .iterator() .toList()
+  - deleted EntityID are saved in Entities, ideally as an ArrayList(EntityIDRange{.low: u32, .high: u32}), to encapsulate large spans of deleted IDs (single values are both low and high?)
+  - Prefabs + Variances
+  - serialization: human-readable (debugging, sharing cross platform) and binary (local and fast)
+  - parallel / thread-safe?

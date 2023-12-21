@@ -1,8 +1,39 @@
 Brainstorming gameplay: components, compostion, systems
 
-
-
 Prefabs
-    - unsure if I want to use JSON files or id mapped functions to represent entity prefabs
+    - Prefab struct, PrefabInstance component with prefab_id
+    - functions for instancing an entity with the correct components, shared components?
     - ids are hash values of a prefab name?
-    - entities have a prefab {id} component?
+    - Apple (Component), AppleShared (Shared Component), Type registration includes info for pair these, tagging them as prefab related?
+
+
+The idea of tagging registered types plus the ability to query for TypeInfo is nice
+    Tags: Component, Shared Component, Prefab, Stat, Skill, ...
+
+
+Item Entity
+    Shared
+        Prefab --> ?
+    Instanced
+        Durability
+        Override Values (Weight, InstancedWeight)
+        Computed Values (totals)
+        Physical State --> Prestine? Dirty? Cracked? Frozen? (bitflags?)
+        Inventory --> slots --> Requirements, EntityID, Count?
+        Owner --> EntityID ?
+
+Stationary Entity
+    Shared
+    Instanced
+
+Actor Entity
+    Shared
+    Instanced
+
+Location Entity
+    Shared
+    Instanced
+
+Connection Entity
+    Shared
+    Instanced
