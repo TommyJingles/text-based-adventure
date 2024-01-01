@@ -1,14 +1,51 @@
 Using this code as a starting point: https://devlog.hexops.com/2022/lets-build-ecs-part-2-databases/
 
 Refactor
-  - Types struct, maps type names to type ids.
+  - Types struct, maps type info to type ids.
+    ✓ name
+    - size, alignment
+  - archetype.columns = hashmap(TypeID, ArrayList(u8))
+    - compute size, alignment, and offset -> cast To/From Type
+    - utilities, Type checking
   - Archetypes gain a list of shared_ids, column_keys, columns is just an ArrayList(Column)
-  - shared_ids and column_keys are sorted asc at Archetype creation, assumed sorted from then on
+    ✓ shared_ids and column_keys are sorted asc at Archetype creation, assumed sorted from then on
+    ✓ set component
+    - remove component
+    - create shared component
+    - set shared component
+    - remove shared component
+    - delete shared component
+    - bulk operations (add many, remove many, new with...)
   - Archetypes fn to return: EntityPayload -> .{id: EntityID, components: HashMapUnmanaged(TypeID, *[]u8), shared: ArrayList(SharedID)}
-  - Remove AnyColumn, just use Column, data is just an ArrayList(u8), CRUD ops are bytes only? casting happens in Archetypes.
   - Entity Queries, used for iteration, entity testing. 
     .has() .none() .has_shared() .none_shared() .where(callback) .test(entity) .testAll(entities) .run() .iterator() .toList()
   - deleted EntityID are saved in Entities, ideally as an ArrayList(EntityIDRange{.low: u32, .high: u32}), to encapsulate large spans of deleted IDs (single values are both low and high?)
   - Prefabs + Variances
   - serialization: human-readable (debugging, sharing cross platform) and binary (local and fast)
   - parallel / thread-safe?
+
+
+
+pub const Blackboard = struct { 
+  map: AutoHashMap(TypeID, []u8)
+  get(T) T
+  has(T) bool
+  set(anytype) void
+  remove(T) void
+}
+
+pub const Archetype = struct {
+  hash
+  entity_ids: ArrayListUnmanaged(EntityID)
+  shared_ids: ArrayListUnmanaged(EntityID)
+  // https://devlog.hexops.com/2022/zig-hashmaps-explained/#array-hash-maps
+  // order keys at creation, necessary for hashing
+  columns: AutoArrayHashMapUnmanaged(TypeID, ArrayListUnmanaged(u8))
+  hash(col_keys, shared_ids) u32
+  init() / deinit()
+  new() row_index
+  get(row_index, T) T
+  set(row_index, T) void
+  remove(row_index) !void
+  pop() !void
+}

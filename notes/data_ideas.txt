@@ -11,6 +11,8 @@ The idea of tagging registered types plus the ability to query for TypeInfo is n
     Tags: Component, Shared Component, Prefab, Stat, Skill, ...
 
 
+
+
 Item Entity
     Shared
         Prefab --> ?

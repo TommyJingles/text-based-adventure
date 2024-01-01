@@ -1,6 +1,7 @@
 TODO: 
 
 ECS v2
-Custom string parsing
-  "This is a  <red>{prefab.name}</red> with durability of <rgb col="123,213,46">${durability}</rgb>"
-Better Rendering
+Graph
+Custom string parsing (runtime)
+  - "This is a  <red>{prefab.name}</red> with durability of <rgb col="123,213,46">${durability}</rgb>"
+Rendering

@@ -1,709 +1,500 @@
-// Entity Component System, Archetype-based
-// my variation of this: https://devlog.hexops.com/2022/lets-build-ecs-part-2-databases/
-
 const std = @import("std");
-const testing = std.testing;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const hash = std.hash.Murmur3_32.hash;
 
-/// convert a type to a u32 hash of it's name
-pub const type_id = (struct {
-    pub fn hash(comptime typ: type) u32 {
-        return std.hash.XxHash32.hash(0, @typeName(typ));
+pub const EntityID = u32;
+
+pub const Types = struct {
+    pub const Info = struct {
+        id: u32,
+        name: []const u8,
+        size: usize = 0,
+        alignment: u16 = 0,
+    };
+
+    map: std.AutoHashMap(u32, Info),
+
+    pub fn id(comptime T: type) u32 {
+        return hash(@typeName(T));
     }
-}).hash;
-
-/// convert a type to a u32 hash of it's name
-pub const str_id = (struct {
-    pub fn hash(str: []const u8) u32 {
-        return std.hash.XxHash32.hash(0, str);
-    }
-}).hash;
-
-/// stores a single object of type T for each T added
-/// taken from: https://github.com/prime31/zig-ecs/blob/master/src/ecs/type_store.zig
-pub const Blackboard = struct {
-    map: std.AutoHashMap(u32, []u8),
-    allocator: std.mem.Allocator,
-
-    pub fn init(allocator: std.mem.Allocator) Blackboard {
-        return Blackboard{
-            .map = std.AutoHashMap(u32, []u8).init(allocator),
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *Blackboard) void {
-        var iter = self.map.valueIterator();
-        while (iter.next()) |val_ptr| {
-            self.allocator.free(val_ptr.*);
+    pub fn ids(type_ids: std.ArrayList(u32), comptime args: anytype) void {
+        inline for (args) |entry| {
+            // need safety checking or something here
+            try type_ids.*.append(Types.id(entry));
         }
+    }
+
+    pub fn init(allocator: Allocator) Types {
+        return .{ .map = std.AutoHashMap(u32, Info).init(allocator) };
+    }
+
+    pub fn deinit(self: *Types) void {
         self.map.deinit();
     }
 
-    /// adds instance, returning a pointer to the item as it lives in the store
-    pub fn add(self: *Blackboard, instance: anytype) void {
-        const bytes = self.allocator.alloc(u8, @sizeOf(@TypeOf(instance))) catch unreachable;
-        @memcpy(bytes, std.mem.asBytes(&instance));
-        _ = self.map.put(type_id(@TypeOf(instance)), bytes) catch unreachable;
-    }
-
-    pub fn get(self: *Blackboard, comptime T: type) *T {
-        if (self.map.get(type_id(T))) |bytes| {
-            return @as(*T, @ptrCast(@alignCast(bytes)));
-        }
-        unreachable;
-    }
-
-    pub fn getConst(self: *Blackboard, comptime T: type) T {
-        return self.get(T).*;
-    }
-
-    pub fn getOrAdd(self: *Blackboard, comptime T: type) *T {
-        if (!self.has(T)) {
-            const instance = std.mem.zeroes(T);
-            self.add(instance);
-        }
-        return self.get(T);
-    }
-
-    pub fn remove(self: *Blackboard, comptime T: type) void {
-        if (self.map.get(type_id(T))) |bytes| {
-            self.allocator.free(bytes);
-            _ = self.map.remove(type_id(T));
+    pub fn register(self: *Types, comptime T: type) !u32 {
+        // https://discord.com/channels/605571803288698900/1189370877876379688
+        var tid = hash(@typeName(T));
+        if (self.map.contains(tid)) {
+            return tid;
+        } else {
+            var info = Info{ .id = tid, .name = @typeName(T), .size = @sizeOf(T), .alignment = @alignOf(T) };
+            try self.map.put(info.id, info);
+            return info.id;
         }
     }
 
-    pub fn has(self: *Blackboard, comptime T: type) bool {
-        return self.map.contains(type_id(T));
+    pub fn registerAll(self: *Types, type_ids: *std.ArrayList(u32), comptime args: anytype) !void {
+        inline for (args) |entry| {
+            // need type checking or something here
+            try type_ids.*.append(try self.register(entry));
+        }
+    }
+
+    pub fn get(self: *Types, tid: u32) ?Info {
+        return self.map.get(tid);
+    }
+
+    pub fn getByType(self: *Types, comptime T: type) ?Info {
+        return self.map.get(hash(@typeName(T)));
     }
 };
 
-test "Blackboard" {
-    const Vector = struct { x: f32 = 0, y: f32 = 0, z: f32 = 0 };
+test "Types" {
+    const Thing = struct {
+        a: u32 = 0,
+        b: i16 = 0,
+        pub fn init(alloc: Allocator) !@This() {
+            _ = alloc;
+            return .{};
+        }
+    };
 
-    var bb = Blackboard.init(std.testing.allocator);
-    defer bb.deinit();
+    const Thang = struct {
+        c: f32,
+        pub fn deinit(alloc: Allocator) void {
+            _ = alloc;
+            return .{};
+        }
+    };
 
-    const orig = Vector{ .x = 5, .y = 6, .z = 8 };
-    bb.add(orig);
-    try std.testing.expect(bb.has(Vector));
-    try std.testing.expectEqual(bb.get(Vector).*, orig);
+    const Theng = struct {
+        pub fn func() void {}
+    };
 
-    const v = bb.get(Vector);
-    try std.testing.expectEqual(v.*, Vector{ .x = 5, .y = 6, .z = 8 });
-    v.*.x = 666;
+    var alloc = std.testing.allocator;
+    var types = Types.init(alloc);
+    defer types.deinit();
 
-    const v2 = bb.get(Vector);
-    try std.testing.expectEqual(v2.*, Vector{ .x = 666, .y = 6, .z = 8 });
+    const theng_id = try types.register(Theng);
+    std.debug.print("\ntheng_id: {}", .{theng_id});
 
-    bb.remove(Vector);
-    try std.testing.expect(!bb.has(Vector));
+    var id_list = std.ArrayList(u32).init(alloc);
+    defer id_list.deinit();
 
-    const v3 = bb.getOrAdd(u32);
-    try std.testing.expectEqual(v3.*, 0);
-    v3.* = 777;
+    try types.registerAll(&id_list, .{ Thing, Thang });
+    std.debug.print("\nid_list: {any}\n", .{id_list.items});
 
-    _ = bb.get(u32);
-    try std.testing.expectEqual(v3.*, 777);
+    var info_1 = types.get(theng_id).?;
+    var info_2 = types.getByType(Theng).?;
+    assert(info_1.id == info_2.id);
 }
 
-/// Same thing as TypeStore, but a provided "name" allows for storing
-/// multiple of the same type so long as the name is unique
-pub const NamedBlackboard = struct {
-    pub const BlackboardValue = struct { type_id: u32, bytes: []u8 };
+pub const Archetype = struct {
+    id: u32,
+    entity_ids: std.ArrayListUnmanaged(EntityID),
+    shared_ids: std.ArrayListUnmanaged(u32),
+    columns: std.AutoArrayHashMapUnmanaged(u32, std.ArrayListUnmanaged(u8)),
 
-    map: std.AutoHashMap(u32, BlackboardValue),
-    allocator: std.mem.Allocator,
+    const ArchetypeError = error{ InvalidColumnTypeID, InvalidRowIndex };
 
-    pub fn init(allocator: std.mem.Allocator) NamedBlackboard {
-        return NamedBlackboard{
-            .map = std.AutoHashMap(u32, BlackboardValue).init(allocator),
-            .allocator = allocator,
+    pub fn hash(c_ids: ?[]u32, s_ids: ?[]u32) u32 {
+        if (c_ids == null and s_ids == null) return std.math.maxInt(u32);
+
+        var h: u32 = 0;
+        if (c_ids) |cids| {
+            for (cids) |c| {
+                h ^= c;
+            }
+        }
+        if (s_ids) |sids| {
+            for (sids) |s| {
+                h ^= s;
+            }
+        }
+        return h;
+    }
+
+    pub fn init(alloc: Allocator, c_ids: ?[]u32, s_ids: ?[]u32) !Archetype {
+        var arch = Archetype{
+            .id = Archetype.hash(c_ids, s_ids),
+            .entity_ids = std.ArrayListUnmanaged(u32){},
+            .shared_ids = std.ArrayListUnmanaged(u32){},
+            .columns = std.AutoArrayHashMapUnmanaged(u32, std.ArrayListUnmanaged(u8)){},
         };
+        if (s_ids) |sids| {
+            try arch.shared_ids.appendSlice(alloc, sids);
+        }
+        if (c_ids) |cids| {
+            for (cids) |c| {
+                try arch.columns.put(alloc, c, .{});
+            }
+        }
+
+        return arch;
+    }
+
+    pub fn deinit(self: *Archetype, alloc: Allocator) void {
+        var itr = self.columns.iterator();
+        while (itr.next()) |entry| {
+            entry.value_ptr.*.deinit(alloc);
+        }
+        self.columns.deinit(alloc);
+        self.shared_ids.deinit(alloc);
+        self.entity_ids.deinit(alloc);
+    }
+
+    pub fn new(self: *Archetype, alloc: Allocator, types: *Types, entity_id: EntityID) !usize {
+        try self.entity_ids.append(alloc, entity_id);
+        var itr = self.columns.iterator();
+        while (itr.next()) |entry| {
+            var info = types.get(entry.key_ptr.*);
+            if (info) |inf| {
+                try entry.value_ptr.*.ensureTotalCapacity(alloc, entry.value_ptr.*.items.len + inf.size);
+            }
+        }
+        return self.entity_ids.items.len - 1;
+    }
+
+    pub fn remove(self: *Archetype, alloc: Allocator, typs: *Types, row_index: usize) !void {
+        if (row_index >= self.entity_ids.items.len) return ArchetypeError.InvalidRowIndex;
+
+        var itr = self.columns.iterator();
+        if (self.entity_ids.items.len == 1) {
+            while (itr.next()) |entry| {
+                entry.value_ptr.*.clearRetainingCapacity();
+            }
+        } else if (self.entity_ids.items.len - 1 == row_index) {
+            while (itr.next()) |entry| {
+                var info = typs.get(entry.key_ptr.*).?;
+                var bytes = entry.value_ptr.*;
+                try bytes.resize(alloc, bytes.items.len - info.size);
+            }
+        } else {
+            while (itr.next()) |entry| {
+                var info = typs.get(entry.key_ptr.*).?;
+                var bytes = entry.value_ptr.*;
+                try bytes.replaceRange(alloc, row_index * info.size, info.size, bytes.items[bytes.items.len - info.size .. bytes.items.len]);
+                try bytes.resize(alloc, bytes.items.len - info.size);
+            }
+        }
+
+        _ = self.entity_ids.swapRemove(row_index);
+    }
+
+    pub fn set(self: *Archetype, row_index: usize, component: anytype) !void {
+        var id = Types.id(@TypeOf(component));
+        if (!self.columns.contains(id)) return ArchetypeError.InvalidColumnTypeID;
+
+        var column = self.columns.get(id).?;
+
+        const size = @sizeOf(@TypeOf(component));
+        var offset = row_index * size;
+        if (offset + size > column.items.len) return ArchetypeError.InvalidRowIndex;
+
+        var bytes = std.mem.toBytes(component);
+        @memcpy(column.items[offset .. offset + size], &bytes);
+    }
+
+    pub fn get(self: *Archetype, row_index: usize, comptime T: type) !*T {
+        var id = Types.id(T);
+        if (!self.columns.contains(id)) return ArchetypeError.InvalidID;
+
+        var column = self.columns.get(id).?;
+
+        const size = @sizeOf(T);
+        var offset = row_index * size;
+        if (offset + size > column.items.len) return ArchetypeError.InvalidRowIndex;
+
+        return @as(*T, @ptrCast(@alignCast(column.items[offset .. offset + size])));
+    }
+};
+
+test "Archetype" {
+    const print_archetype = (struct {
+        fn print_archetype(typs: *Types, a: *Archetype) void {
+            std.debug.print("{{", .{});
+            std.debug.print("\n  id = {},", .{a.id});
+            std.debug.print("\n  entity_ids = {},", .{a.entity_ids});
+            std.debug.print("\n  shared_ids = {},", .{a.shared_ids});
+            std.debug.print("\n  columns = ({})[", .{a.columns.keys().len});
+            var itr = a.columns.iterator();
+            while (itr.next()) |entry| {
+                var info = typs.get(entry.key_ptr.*).?;
+                std.debug.print("\n    {{id: {}, data: {any} }},", .{ info.id, entry.value_ptr.* });
+            }
+            std.debug.print("\n  ],\n}}\n", .{});
+        }
+    }).print_archetype;
+
+    const Thing = struct { val: u32 };
+    const Thang = struct { val: f32 };
+
+    var alloc = std.testing.allocator;
+    var types = Types.init(alloc);
+    defer types.deinit();
+
+    var c_list = std.ArrayList(u32).init(alloc);
+    defer c_list.deinit();
+    try c_list.append(try types.register(Thing)); // TODO: appendAll(), which is then used for the c_list, s_list
+    try c_list.append(try types.register(Thang));
+
+    var void_arch = try Archetype.init(alloc, null, null);
+    defer void_arch.deinit(alloc);
+    _ = try void_arch.new(alloc, &types, 0);
+    try void_arch.remove(alloc, &types, 0);
+
+    var arch = try Archetype.init(alloc, c_list.items, null);
+    defer arch.deinit(alloc);
+
+    var eid0: u32 = 0;
+    var row0 = try arch.new(alloc, &types, eid0);
+    try arch.set(row0, Thing{ .val = 12 });
+    try arch.set(row0, Thang{ .val = 34.5 });
+
+    var eid1: u32 = 1;
+    var row1 = try arch.new(alloc, &types, eid1);
+
+    try arch.set(row1, Thing{ .val = 34 });
+    try arch.set(row1, Thang{ .val = 56.7 });
+
+    std.debug.print("\narch = ", .{});
+    print_archetype(&types, &arch);
+
+    var arch2 = try Archetype.init(alloc, null, null);
+    defer arch2.deinit(alloc);
+    std.debug.print("\narch2 = ", .{});
+    print_archetype(&types, &arch2);
+
+    var arch3 = try Archetype.init(alloc, arch.columns.keys(), arch.shared_ids.items);
+    defer arch3.deinit(alloc);
+    std.debug.print("\narch3 = ", .{});
+    print_archetype(&types, &arch3);
+}
+
+// inspired by: https://github.com/prime31/zig-ecs/blob/master/src/ecs/type_store.zig
+pub const NamedBlackboard = struct {
+    pub const Entry = struct { type_id: u32, bytes: []u8 };
+
+    allocator: Allocator,
+    types: *Types,
+    map: std.AutoHashMapUnmanaged(u32, Entry),
+
+    pub fn init(allocator: Allocator, typs: *Types) NamedBlackboard {
+        return .{ .allocator = allocator, .types = typs, .map = std.AutoHashMapUnmanaged(u32, Entry){} };
     }
 
     pub fn deinit(self: *NamedBlackboard) void {
-        var iter = self.map.valueIterator();
-        while (iter.next()) |bv| {
-            self.allocator.free(bv.*.bytes);
+        var itr = self.map.valueIterator();
+        while (itr.next()) |value| {
+            self.allocator.free(value.bytes);
         }
-        self.map.deinit();
+        self.map.deinit(self.allocator);
     }
 
-    pub fn add(self: *NamedBlackboard, name: []const u8, instance: anytype) void {
-        const sid = str_id(name);
-        const tid = type_id(@TypeOf(instance));
-        const bytes = self.allocator.alloc(u8, @sizeOf(@TypeOf(instance))) catch unreachable;
+    pub fn getID(self: *NamedBlackboard, name: []const u8) u32 {
+        _ = self;
+        return hash(name);
+    }
+
+    pub fn set(self: *NamedBlackboard, id: u32, instance: anytype) u32 {
+        var info = self.types.get(Types.id(@TypeOf(instance))).?;
+        const bytes = self.allocator.alloc(u8, info.size) catch unreachable;
         @memcpy(bytes, std.mem.asBytes(&instance));
-        _ = self.map.put(sid, BlackboardValue{ .type_id = tid, .bytes = bytes }) catch unreachable;
+        self.remove(id);
+        self.map.put(self.allocator, id, Entry{ .type_id = info.id, .bytes = bytes }) catch unreachable;
+        return id;
     }
 
-    pub fn get(self: *NamedBlackboard, name: []const u8, comptime T: type) *T {
-        const sid = str_id(name);
-        const tid = type_id(T);
-        if (self.map.get(sid)) |bv| {
-            if (bv.type_id == tid) {
-                return @as(*T, @ptrCast(@alignCast(bv.bytes)));
-            }
+    pub fn setByName(self: *NamedBlackboard, name: []const u8, instance: anytype) u32 {
+        return self.set(hash(name), instance);
+    }
+
+    pub fn setRaw(self: *NamedBlackboard, id: u32, type_id: u32, bytes: []u8) u32 {
+        var info = self.types.get(type_id).?;
+        const _bytes = self.allocator.alloc(u8, info.size) catch unreachable;
+        @memcpy(_bytes, bytes);
+        self.map.put(self.allocator, id, Entry{ .type_id = info.id, .bytes = bytes }) catch unreachable;
+        return id;
+    }
+
+    pub fn setRawByName(self: *NamedBlackboard, name: []const u8, type_id: u32, bytes: []u8) u32 {
+        return self.setRaw(hash(name), type_id, bytes);
+    }
+
+    pub fn get(self: *NamedBlackboard, id: u32, comptime T: type) ?*T {
+        if (self.map.get(id)) |entry| {
+            return @as(*T, @ptrCast(@alignCast(entry.bytes)));
         }
-        unreachable;
+        return null;
     }
 
-    pub fn getConst(self: *NamedBlackboard, name: []const u8, comptime T: type) T {
-        return self.get(name, T).*;
-    }
-
-    pub fn getOrAdd(self: *NamedBlackboard, name: []const u8, comptime T: type) *T {
-        const sid = str_id(name);
-        if (!self.has(sid)) {
-            const instance = std.mem.zeroes(T);
-            self.add(name, instance);
+    pub fn getRaw(self: *NamedBlackboard, id: u32) ?[]u8 {
+        if (self.map.get(id)) |entry| {
+            return entry.bytes;
         }
-        return self.get(name, T);
+        return null;
     }
 
-    pub fn remove(self: *NamedBlackboard, name: []const u8) void {
-        const sid = str_id(name);
-        if (self.map.get(sid)) |bv| {
-            self.allocator.free(bv.bytes);
-            _ = self.map.remove(sid);
+    pub fn getByName(self: *NamedBlackboard, name: []const u8, comptime T: type) ?*T {
+        return self.get(hash(name), T);
+    }
+
+    pub fn getRawByName(self: *NamedBlackboard, name: []const u8) ?[]u8 {
+        return self.getRaw(hash(name));
+    }
+
+    pub fn remove(self: *NamedBlackboard, id: u32) void {
+        if (self.map.get(id)) |entry| {
+            self.allocator.free(entry.bytes);
+            _ = self.map.remove(id);
+        }
+    }
+
+    pub fn removeByName(self: *NamedBlackboard, name: []const u8) void {
+        var id = hash(name);
+        if (self.map.get(id)) |entry| {
+            self.allocator.free(entry.bytes);
+            _ = self.map.remove(id);
         }
     }
 
     pub fn has(self: *NamedBlackboard, name: []const u8) bool {
-        return self.map.contains(str_id(name));
+        return self.map.contains(hash(name));
     }
 };
 
 test "NamedBlackboard" {
-    const Vector = struct { x: f32 = 0, y: f32 = 0, z: f32 = 0 };
+    const Thing = struct { a: u32, b: i16 };
+    const Thang = struct { c: f32 };
 
-    const vector1 = Vector{ .x = 1, .y = 2, .z = 3 };
+    var alloc = std.testing.allocator;
+    var types = Types.init(alloc);
+    defer types.deinit();
 
-    const vector2 = Vector{ .x = 4, .y = 5, .z = 6 };
+    var type_ids = std.ArrayList(u32).init(alloc);
+    defer type_ids.deinit();
 
-    var nbb = NamedBlackboard.init(std.testing.allocator);
-    defer nbb.deinit();
+    try types.registerAll(&type_ids, .{ Thing, Thang });
+    var board = NamedBlackboard.init(alloc, &types);
+    defer board.deinit();
 
-    nbb.add("MyVector", vector1);
-    try std.testing.expect(nbb.has("MyVector"));
-    try std.testing.expectEqual(nbb.get("MyVector", Vector).*, vector1);
+    var id = board.setByName("Thing1", Thing{ .a = 1, .b = 2 });
+    _ = board.set(id, Thing{ .a = 3, .b = 4 });
 
-    nbb.add("OtherVector", vector2);
-    try std.testing.expect(nbb.has("OtherVector"));
-    try std.testing.expectEqual(nbb.get("OtherVector", Vector).*, vector2);
+    var thing1 = board.get(id, Thing).?.*;
+    try std.testing.expectEqual(board.getByName("Thing1", Thing), board.get(id, Thing));
+    try std.testing.expectEqual(Thing{ .a = 3, .b = 4 }, thing1);
+    assert(std.mem.eql(u8, &std.mem.toBytes(thing1), board.getRaw(id).?));
 
-    const v1 = nbb.get("MyVector", Vector);
-    try std.testing.expectEqual(v1.*, Vector{ .x = 1, .y = 2, .z = 3 });
-    v1.*.x = 555;
-
-    const v1_1 = nbb.get("MyVector", Vector);
-    try std.testing.expectEqual(v1_1.*, Vector{ .x = 555, .y = 2, .z = 3 });
-
-    nbb.remove("MyVector");
-    try std.testing.expect(!nbb.has("MyVector"));
+    board.remove(id);
+    var thing2 = board.getByName("Thing1", Thing);
+    assert(thing2 == null);
 }
-
-/// An entity ID uniquely identifies an entity globally within an Entities set.
-pub const EntityID = u32;
-
-pub const void_archetype_hash = std.math.maxInt(u32);
-
-/// Represents the storage for a single type of component within a unique archetype.
-/// Database equivalent: a column within a table.
-pub fn Column(comptime Component: type) type {
-    return struct {
-        total_rows: *usize,
-
-        data: std.ArrayListUnmanaged(Component) = .{},
-
-        const Self = @This();
-
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            self.data.deinit(allocator);
-        }
-
-        pub fn set(self: *Self, allocator: Allocator, row_index: u32, component: Component) !void {
-            if (self.data.items.len <= row_index) try self.data.appendNTimes(allocator, undefined, self.data.items.len + 1 - row_index);
-            self.data.items[row_index] = component;
-        }
-
-        pub fn remove(self: *Self, row_index: u32) void {
-            if (self.data.items.len > row_index) {
-                _ = self.data.swapRemove(row_index);
-            }
-        }
-
-        pub inline fn get(self: *Self, row_index: u32) Component {
-            return self.data.items[row_index];
-        }
-
-        pub inline fn copy(dst: *Self, allocator: Allocator, src_row: u32, dst_row: u32, src: *Self) !void {
-            try dst.set(allocator, dst_row, src.get(src_row));
-        }
-    };
-}
-
-/// A type-erased representation of columnstorage(T) (where T is unknown).
-pub const AnyColumn = struct {
-    ptr: *anyopaque,
-    deinit: *const fn (erased: *anyopaque, allocator: Allocator) void,
-    remove: *const fn (erased: *anyopaque, row: u32) void,
-    cloneType: *const fn (erased: AnyColumn, total_entities: *usize, allocator: Allocator, retval: *AnyColumn) error{OutOfMemory}!void,
-    copy: *const fn (dst_erased: *anyopaque, allocator: Allocator, src_row: u32, dst_row: u32, src_erased: *anyopaque) error{OutOfMemory}!void,
-
-    // Casts this `AnyColumn` into `*Column(Component)` with the given type
-    // (unsafe).
-    pub fn cast(ptr: *anyopaque, comptime Component: type) *Column(Component) {
-        var concrete: *Column(Component) = @ptrCast(@alignCast(ptr));
-        return concrete;
-    }
-};
-
-pub const Archetype = struct {
-    allocator: Allocator,
-    /// The hash of every component name in this archetype, i.e. the name of this archetype.
-    hash: u32,
-
-    /// A mapping of rows in the table to entity IDs.
-    ///
-    /// Doubles as the counter of total number of rows that have been reserved within this
-    /// archetype table.
-    entity_ids: std.ArrayListUnmanaged(EntityID) = .{},
-
-    /// A string hashmap of component_name -> type-erased *columnstorage(Component)
-    columns: std.AutoHashMapUnmanaged(u32, AnyColumn),
-
-    /// Calculates the storage.hash value. This is a hash of all the component type_id, and can
-    /// effectively be used to uniquely identify this table within the database.
-    pub fn calculateHash(self: *Archetype) void {
-        self.hash = 0;
-        var iter = self.columns.iterator();
-        while (iter.next()) |entry| {
-            self.hash ^= entry.key_ptr.*;
-        }
-        // same loop, but for shared_columns (u32 values)
-    }
-
-    pub fn deinit(self: *Archetype) void {
-        var itr = self.columns.valueIterator();
-        while (itr.next()) |any_column| {
-            any_column.deinit(any_column.ptr, self.allocator);
-        }
-        self.entity_ids.deinit(self.allocator);
-        self.columns.deinit(self.allocator);
-    }
-
-    /// New reserves a row for storing an entity within this archetype table.
-    pub fn new(self: *Archetype, entity: EntityID) !u32 {
-        // Return a new row index
-        const new_row_index = self.entity_ids.items.len;
-        try self.entity_ids.append(self.allocator, entity);
-        return @as(u32, @intCast(new_row_index));
-    }
-
-    /// Undoes the last call to the new() operation, effectively unreserving the row that was last
-    /// reserved.
-    pub fn undoNew(self: *Archetype) void {
-        _ = self.entity_ids.pop();
-    }
-
-    /// Sets the value of the named component (column) for the given row in the table. Realizes the
-    /// deferred allocation of column storage for N entities (storage.counter) if it is not already.
-    pub fn set(self: *Archetype, row_index: u32, component: anytype) !void {
-        var anyColumn = self.columns.get(type_id(@TypeOf(component))).?;
-        var column = AnyColumn.cast(anyColumn.ptr, @TypeOf(component));
-        try column.set(self.allocator, row_index, component);
-    }
-
-    /// Removes the specified row. See also the `Entity.delete()` helper.
-    ///
-    /// This merely marks the row as removed, the same row index will be recycled the next time a
-    /// new row is requested via `new()`.
-    pub fn remove(self: *Archetype, row_index: u32) !void {
-        _ = self.entity_ids.swapRemove(row_index);
-        var itr = self.columns.valueIterator();
-        while (itr.next()) |anyColumn| {
-            anyColumn.remove(anyColumn.ptr, row_index);
-        }
-    }
-};
 
 pub const Entities = struct {
+    pub const Pointer = struct { archetype_id: u32, row_index: usize };
+
     allocator: Allocator,
-
-    /// TODO!
-    nextEntityID: EntityID = 0,
-
-    /// A mapping of entity IDs (array indices) to where an entity's component values are actually
-    /// stored.
+    types: *Types,
     pointers: std.AutoHashMapUnmanaged(EntityID, Pointer) = .{},
-
-    /// A mapping of archetype hash to their storage.
-    ///
-    /// Database equivalent: table name -> tables representing entities.
+    shared: NamedBlackboard,
     archetypes: std.AutoArrayHashMapUnmanaged(u32, Archetype) = .{},
+    void_archetype_id: u32 = std.math.maxInt(u32),
+    next_entity_id: u32 = 0,
 
-    /// Points to where an entity is stored, specifically in which archetype table and in which row
-    /// of that table. That is, the entity's component values are stored at:
-    ///
-    /// ```
-    /// Entities.archetypes[ptr.archetype_index].rows[ptr.row_index]
-    /// ```
-    ///
-    pub const Pointer = struct {
-        archetype_index: u16,
-        row_index: u32,
-    };
-
-    pub fn init(allocator: Allocator) !Entities {
-        var entities = Entities{ .allocator = allocator };
-
-        try entities.archetypes.put(allocator, void_archetype_hash, Archetype{
-            .allocator = allocator,
-            .columns = .{},
-            .hash = void_archetype_hash,
-        });
-
+    pub fn init(allocator: Allocator, types: *Types) !Entities {
+        var entities = Entities{ .allocator = allocator, .types = types, .shared = NamedBlackboard.init(allocator, types) };
+        var arch: Archetype = try Archetype.init(allocator, null, null);
+        try entities.archetypes.put(allocator, entities.void_archetype_id, arch);
         return entities;
     }
 
     pub fn deinit(self: *Entities) void {
         self.pointers.deinit(self.allocator);
-        var iter = self.archetypes.iterator();
-        while (iter.next()) |entry| {
-            entry.value_ptr.deinit();
+        self.shared.deinit();
+        var itr = self.archetypes.iterator();
+        while (itr.next()) |entry| {
+            entry.value_ptr.deinit(self.allocator);
         }
         self.archetypes.deinit(self.allocator);
     }
 
-    pub fn initAnyColumn(self: *const Entities, total_rows: *usize, comptime Component: type) !AnyColumn {
-        var new_ptr = try self.allocator.create(Column(Component));
-        new_ptr.* = Column(Component){ .total_rows = total_rows };
-
-        // maybe this could be in the 'types' and during 'register' this is created?
-        // that way I can just do: types.getAnyColumn(id)?
-        return AnyColumn{
-            .ptr = new_ptr,
-            .deinit = (struct {
-                pub fn deinit(erased: *anyopaque, allocator: Allocator) void {
-                    var ptr = AnyColumn.cast(erased, Component);
-                    ptr.deinit(allocator);
-                    allocator.destroy(ptr);
-                }
-            }).deinit,
-            .remove = (struct {
-                pub fn remove(erased: *anyopaque, row: u32) void {
-                    var ptr = AnyColumn.cast(erased, Component);
-                    ptr.remove(row);
-                }
-            }).remove,
-            .cloneType = (struct {
-                pub fn cloneType(erased: AnyColumn, _total_rows: *usize, allocator: Allocator, retval: *AnyColumn) !void {
-                    var new_clone = try allocator.create(Column(Component));
-                    new_clone.* = Column(Component){ .total_rows = _total_rows };
-                    var tmp = erased;
-                    tmp.ptr = new_clone;
-                    retval.* = tmp;
-                }
-            }).cloneType,
-            .copy = (struct {
-                pub fn copy(dst_erased: *anyopaque, allocator: Allocator, src_row: u32, dst_row: u32, src_erased: *anyopaque) !void {
-                    var dst = AnyColumn.cast(dst_erased, Component);
-                    var src = AnyColumn.cast(src_erased, Component);
-                    return dst.copy(allocator, src_row, dst_row, src);
-                }
-            }).copy,
-        };
-    }
-
-    /// Returns a new entity.
     pub fn create(self: *Entities) !EntityID {
-        const new_id = self.nextEntityID;
-        self.nextEntityID += 1;
-
-        var void_archetype = self.archetypes.getPtr(void_archetype_hash).?;
-        const new_row = try void_archetype.new(new_id);
-        const void_pointer = Pointer{
-            .archetype_index = 0, // void archetype is guaranteed to be first index
-            .row_index = new_row,
-        };
-
-        self.pointers.put(self.allocator, new_id, void_pointer) catch |err| {
-            void_archetype.undoNew();
-            return err;
-        };
-        return new_id;
+        var arch: Archetype = self.archetypes.get(self.void_archetype_id).?;
+        var id: u32 = self.next_entity_id;
+        var row_index: usize = try arch.new(self.allocator, self.types, id);
+        try self.pointers.put(self.allocator, id, Pointer{ .archetype_id = arch.id, .row_index = row_index });
+        self.next_entity_id += 1;
+        return id;
     }
 
-    /// Returns the archetype storage for the given entity.
-    pub inline fn archetypeByID(self: *Entities, entity: EntityID) *Archetype {
-        const ptr = self.pointers.get(entity).?;
-        return &self.archetypes.values()[ptr.archetype_index];
-    }
-
-    /// Removes an entity.
-    pub fn delete(self: *Entities, entity: EntityID) !void {
-        var archetype = self.archetypeByID(entity);
-        const ptr = self.pointers.get(entity).?;
-
-        // A swap removal will be performed, update the entity stored in the last row of the
-        // archetype table to point to the row the entity we are removing is currently located.
-        const last_row_entity_id = archetype.entity_ids.items[archetype.entity_ids.items.len - 1];
-        try self.pointers.put(self.allocator, last_row_entity_id, Pointer{
-            .archetype_index = ptr.archetype_index,
-            .row_index = ptr.row_index,
-        });
-
-        // Perform a swap removal to remove our entity from the archetype table.
-        try archetype.remove(ptr.row_index);
-
-        try self.delete(entity);
-    }
-
-    /// Sets the named component to the specified value for the given entity,
-    /// moving the entity from it's current archetype table to the new archetype
-    /// table if required.
-    pub fn setComponent(self: *Entities, entity: EntityID, component: anytype) !void {
-        var archetype = self.archetypeByID(entity);
-        var cid = type_id(@TypeOf(component));
-        // Determine the old hash for the archetype.
-        const old_hash = archetype.hash;
-
-        // Determine the new hash for the archetype + new component
-        var have_already = archetype.columns.contains(cid);
-        const new_hash = if (have_already) old_hash else old_hash ^ cid;
-
-        // Find the archetype storage for this entity. Could be a new archetype storage table (if a
-        // new component was added), or the same archetype storage table (if just updating the
-        // value of a component.)
-        var archetype_entry = try self.archetypes.getOrPut(self.allocator, new_hash);
-        if (!archetype_entry.found_existing) {
-            archetype_entry.value_ptr.* = Archetype{
-                .allocator = self.allocator,
-                .columns = .{},
-                .hash = 0,
-            };
-            var new_archetype = archetype_entry.value_ptr;
-
-            // Create storage/columns for all of the existing columns on the entity.
-            var column_iter = archetype.columns.iterator();
-            while (column_iter.next()) |entry| {
-                var erased: AnyColumn = undefined;
-                entry.value_ptr.cloneType(entry.value_ptr.*, &new_archetype.entity_ids.items.len, self.allocator, &erased) catch |err| {
-                    assert(self.archetypes.swapRemove(new_hash));
-                    return err;
-                };
-                new_archetype.columns.put(self.allocator, entry.key_ptr.*, erased) catch |err| {
-                    assert(self.archetypes.swapRemove(new_hash));
-                    return err;
-                };
-            }
-
-            // Create storage/column for the new component.
-            const erased = self.initAnyColumn(&new_archetype.entity_ids.items.len, @TypeOf(component)) catch |err| {
-                assert(self.archetypes.swapRemove(new_hash));
-                return err;
-            };
-            new_archetype.columns.put(self.allocator, type_id(@TypeOf(component)), erased) catch |err| {
-                assert(self.archetypes.swapRemove(new_hash));
-                return err;
-            };
-
-            new_archetype.calculateHash();
+    pub fn delete(self: *Entities, entity_id: EntityID) !void {
+        var pointer: Pointer = self.pointers.get(entity_id).?;
+        var arch: Archetype = self.archetypes.get(pointer.archetype_id).?;
+        var swap_id: u32 = arch.entity_ids.items[arch.entity_ids.items.len - 1];
+        try arch.remove(self.allocator, self.types, pointer.row_index);
+        if (entity_id != swap_id) {
+            _ = self.pointers.remove(swap_id);
+            try self.pointers.put(self.allocator, swap_id, Pointer{ .archetype_id = arch.id, .row_index = pointer.row_index });
         }
+        _ = try self.delete(entity_id);
 
-        // HERE
-        // Either new storage (if the entity moved between storage tables due to having a new
-        // component) or the prior storage (if the entity already had the component and it's value
-        // is merely being updated.)
-        var current_archetype_storage = archetype_entry.value_ptr;
-
-        if (new_hash == old_hash) {
-            // Update the value of the existing component of the entity.
-            const ptr = self.pointers.get(entity).?;
-            try current_archetype_storage.set(ptr.row_index, component);
-            return;
-        }
-
-        // Copy to all component values for our entity from the old archetype storage
-        // (archetype) to the new one (current_archetype_storage).
-        const new_row = try current_archetype_storage.new(entity);
-        const old_ptr = self.pointers.get(entity).?;
-
-        // Update the storage/columns for all of the existing columns on the entity.
-        var column_iter = archetype.columns.iterator();
-        while (column_iter.next()) |entry| {
-            var old_component_storage = entry.value_ptr;
-            var new_component_storage = current_archetype_storage.columns.get(entry.key_ptr.*).?;
-            new_component_storage.copy(new_component_storage.ptr, self.allocator, new_row, old_ptr.row_index, old_component_storage.ptr) catch |err| {
-                current_archetype_storage.undoNew();
-                return err;
-            };
-        }
-        current_archetype_storage.entity_ids.items[new_row] = entity;
-
-        // Update the storage/column for the new component.
-        current_archetype_storage.set(new_row, component) catch |err| {
-            current_archetype_storage.undoNew();
-            return err;
-        };
-
-        var swapped_entity_id = archetype.entity_ids.items[archetype.entity_ids.items.len - 1];
-        archetype.remove(old_ptr.row_index) catch |err| {
-            current_archetype_storage.undoNew();
-            return err;
-        };
-        try self.pointers.put(self.allocator, swapped_entity_id, old_ptr);
-
-        try self.pointers.put(self.allocator, entity, Pointer{
-            .archetype_index = @as(u16, @intCast(archetype_entry.index)),
-            .row_index = new_row,
-        });
-        return;
-    }
-
-    /// gets the component of the given type (which must be correct, otherwise undefined
-    /// behavior will occur). Returns null if the component does not exist on the entity.
-    pub fn getComponent(self: *Entities, entity: EntityID, comptime Component: type) ?Component {
-        var archetype = self.archetypeByID(entity);
-
-        var component_storage_erased = archetype.columns.get(type_id(Component)) orelse return null;
-
-        const ptr = self.pointers.get(entity).?;
-        var component_storage = AnyColumn.cast(component_storage_erased.ptr, Component);
-        return component_storage.get(ptr.row_index);
-    }
-
-    /// Removes the component from the entity, or noop if it doesn't have such a component.
-    pub fn removeComponent(self: *Entities, entity: EntityID, component: anytype) !void {
-        var cid = type_id(@TypeOf(component));
-        var archetype = self.archetypeByID(entity);
-        if (!archetype.columns.contains(type_id(component))) return;
-
-        // Determine the old hash for the archetype.
-        const old_hash = archetype.hash;
-
-        // Determine the new hash for the archetype with the component removed
-        var new_hash: u32 = 0;
-        var iter = archetype.columns.iterator();
-        while (iter.next()) |entry| {
-            const component_id = entry.key_ptr.*;
-            if (component_id != cid) new_hash ^= cid;
-        }
-        assert(new_hash != old_hash);
-
-        // Find the archetype storage for this entity. Could be a new archetype storage table (if a
-        // new component was added), or the same archetype storage table (if just updating the
-        // value of a component.)
-        var archetype_entry = try self.archetypes.getOrPut(self.allocator, new_hash);
-        if (!archetype_entry.found_existing) {
-            archetype_entry.value_ptr.* = Archetype{
-                .allocator = self.allocator,
-                .columns = .{},
-                .hash = 0,
-            };
-            var new_archetype = archetype_entry.value_ptr;
-
-            // Create storage/columns for all of the existing columns on the entity.
-            var column_iter = archetype.columns.iterator();
-            while (column_iter.next()) |entry| {
-                if (entry.key_ptr.* == cid) continue;
-                var erased: AnyColumn = undefined;
-                entry.value_ptr.cloneType(entry.value_ptr.*, &new_archetype.entity_ids.items.len, self.allocator, &erased) catch |err| {
-                    assert(self.archetypes.swapRemove(new_hash));
-                    return err;
-                };
-                new_archetype.columns.put(self.allocator, entry.key_ptr.*, erased) catch |err| {
-                    assert(self.archetypes.swapRemove(new_hash));
-                    return err;
-                };
-            }
-            new_archetype.calculateHash();
-        }
-
-        // Either new storage (if the entity moved between storage tables due to having a new
-        // component) or the prior storage (if the entity already had the component and it's value
-        // is merely being updated.)
-        var current_archetype_storage = archetype_entry.value_ptr;
-
-        // Copy to all component values for our entity from the old archetype storage
-        // (archetype) to the new one (current_archetype_storage).
-        const new_row = try current_archetype_storage.new(entity);
-        const old_ptr = self.pointers.get(entity).?;
-
-        // Update the storage/columns for all of the existing columns on the entity.
-        var column_iter = current_archetype_storage.columns.iterator();
-        while (column_iter.next()) |entry| {
-            var src_component_storage = archetype.columns.get(entry.key_ptr.*).?;
-            var dst_component_storage = entry.value_ptr;
-            dst_component_storage.copy(dst_component_storage.ptr, self.allocator, new_row, old_ptr.row_index, src_component_storage.ptr) catch |err| {
-                current_archetype_storage.undoNew();
-                return err;
-            };
-        }
-        current_archetype_storage.entity_ids.items[new_row] = entity;
-
-        var swapped_entity_id = archetype.entity_ids.items[archetype.entity_ids.items.len - 1];
-        archetype.remove(old_ptr.row_index) catch |err| {
-            current_archetype_storage.undoNew();
-            return err;
-        };
-        try self.pointers.put(self.allocator, swapped_entity_id, old_ptr);
-
-        try self.pointers.put(self.allocator, entity, Pointer{
-            .archetype_index = @as(u16, @intCast(archetype_entry.index)),
-            .row_index = new_row,
-        });
         return;
     }
 };
 
-test "test_entities" {
-    const allocator = testing.allocator;
-    var entities = try Entities.init(allocator);
+test "Entities" {
+    const print_archetype = (struct {
+        fn print_archetype(typs: *Types, a: *Archetype) void {
+            std.debug.print("{{", .{});
+            std.debug.print("\n  id = {},", .{a.id});
+            std.debug.print("\n  entity_ids = {},", .{a.entity_ids});
+            std.debug.print("\n  shared_ids = {},", .{a.shared_ids});
+            std.debug.print("\n  columns = ({})[", .{a.columns.keys().len});
+            var itr = a.columns.iterator();
+            while (itr.next()) |entry| {
+                var info = typs.get(entry.key_ptr.*).?;
+                std.debug.print("\n    {{id: {}, data: {any} }},", .{ info.id, entry.value_ptr.* });
+            }
+            std.debug.print("\n  ],\n}}\n", .{});
+        }
+    }).print_archetype;
+
+    _ = print_archetype;
+
+    const Thing = struct { a: u32, b: i16 };
+    const Thang = struct { c: f32 };
+
+    var alloc = std.testing.allocator;
+    var types = Types.init(alloc);
+    defer types.deinit();
+
+    var type_ids = std.ArrayList(u32).init(alloc);
+    defer type_ids.deinit();
+
+    try types.registerAll(&type_ids, .{ Thing, Thang });
+    var board = NamedBlackboard.init(alloc, &types);
+    defer board.deinit();
+
+    // init, deinit
+    var entities = try Entities.init(alloc, &types);
     defer entities.deinit();
 
-    const player = try entities.create();
-
-    // Define component types, any Zig type will do!
-    // A location component.
-    const Location = struct {
-        x: f32 = 0,
-        y: f32 = 0,
-        z: f32 = 0,
-    };
-
-    const Name = []const u8;
-
-    try entities.setComponent(player, @as(Name, "jane"));
-    try entities.setComponent(player, Location{});
-    try entities.setComponent(player, @as(Name, "joe"));
-
-    try testing.expectEqual(Location{}, entities.getComponent(player, Location).?);
-    try testing.expectEqual(@as(Name, "joe"), entities.getComponent(player, Name).?);
-
-    try entities.removeComponent(player, Location);
-    var loc = entities.getComponent(player, Location).?;
-    _ = loc;
-
-    try entities.delete(player);
+    // // create, createWith, createAs
+    var ent1 = try entities.create();
+    std.debug.print("\nent1: {}, pointer: {?}\n", .{ ent1, entities.pointers.get(ent1) });
+    // var void_arch = entities.archetypes.get(entities.void_archetype_id).?;
+    // print_archetype(&types, &void_arch);
 }
-
-pub const Systems = struct {};
-
-pub const World = struct {
-    entities: Entities,
-    systems: Systems,
-
-    pub fn init(alloc: std.mem.Allocator) !World {
-        return .{ .entities = try Entities.init(alloc), .systems = Systems{} };
-    }
-
-    pub fn deinit(self: *World) void {
-        // self.types.deinit();
-        self.entities.deinit();
-        // self.systems.deinit();
-    }
-};
