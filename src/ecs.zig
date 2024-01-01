@@ -308,40 +308,40 @@ pub const NamedBlackboard = struct {
         return hash(name);
     }
 
-    pub fn set(self: *NamedBlackboard, id: u32, instance: anytype) u32 {
+    pub fn set(self: *NamedBlackboard, name_id: u32, instance: anytype) u32 {
         var info = self.types.get(Types.id(@TypeOf(instance))).?;
         const bytes = self.allocator.alloc(u8, info.size) catch unreachable;
         @memcpy(bytes, std.mem.asBytes(&instance));
-        self.remove(id);
-        self.map.put(self.allocator, id, Entry{ .type_id = info.id, .bytes = bytes }) catch unreachable;
-        return id;
+        self.remove(name_id);
+        self.map.put(self.allocator, name_id, Entry{ .type_id = info.id, .bytes = bytes }) catch unreachable;
+        return name_id;
     }
 
     pub fn setByName(self: *NamedBlackboard, name: []const u8, instance: anytype) u32 {
         return self.set(hash(name), instance);
     }
 
-    pub fn setRaw(self: *NamedBlackboard, id: u32, type_id: u32, bytes: []u8) u32 {
+    pub fn setRaw(self: *NamedBlackboard, name_id: u32, type_id: u32, bytes: []u8) u32 {
         var info = self.types.get(type_id).?;
         const _bytes = self.allocator.alloc(u8, info.size) catch unreachable;
         @memcpy(_bytes, bytes);
-        self.map.put(self.allocator, id, Entry{ .type_id = info.id, .bytes = bytes }) catch unreachable;
-        return id;
+        self.map.put(self.allocator, name_id, Entry{ .type_id = info.id, .bytes = bytes }) catch unreachable;
+        return name_id;
     }
 
     pub fn setRawByName(self: *NamedBlackboard, name: []const u8, type_id: u32, bytes: []u8) u32 {
         return self.setRaw(hash(name), type_id, bytes);
     }
 
-    pub fn get(self: *NamedBlackboard, id: u32, comptime T: type) ?*T {
-        if (self.map.get(id)) |entry| {
+    pub fn get(self: *NamedBlackboard, name_id: u32, comptime T: type) ?*T {
+        if (self.map.get(name_id)) |entry| {
             return @as(*T, @ptrCast(@alignCast(entry.bytes)));
         }
         return null;
     }
 
-    pub fn getRaw(self: *NamedBlackboard, id: u32) ?[]u8 {
-        if (self.map.get(id)) |entry| {
+    pub fn getRaw(self: *NamedBlackboard, name_id: u32) ?[]u8 {
+        if (self.map.get(name_id)) |entry| {
             return entry.bytes;
         }
         return null;
@@ -355,10 +355,10 @@ pub const NamedBlackboard = struct {
         return self.getRaw(hash(name));
     }
 
-    pub fn remove(self: *NamedBlackboard, id: u32) void {
-        if (self.map.get(id)) |entry| {
+    pub fn remove(self: *NamedBlackboard, name_id: u32) void {
+        if (self.map.get(name_id)) |entry| {
             self.allocator.free(entry.bytes);
-            _ = self.map.remove(id);
+            _ = self.map.remove(name_id);
         }
     }
 
@@ -453,27 +453,14 @@ pub const Entities = struct {
 
         return;
     }
+    // hasComponent, setComponent, removeComponent
+
+    // createComponent, setSharedComponent deleteSharedComponent
+    // hasSharedComponent, setSharedComponent, removeSharedComponent
+
 };
 
 test "Entities" {
-    const print_archetype = (struct {
-        fn print_archetype(typs: *Types, a: *Archetype) void {
-            std.debug.print("{{", .{});
-            std.debug.print("\n  id = {},", .{a.id});
-            std.debug.print("\n  entity_ids = {},", .{a.entity_ids});
-            std.debug.print("\n  shared_ids = {},", .{a.shared_ids});
-            std.debug.print("\n  columns = ({})[", .{a.columns.keys().len});
-            var itr = a.columns.iterator();
-            while (itr.next()) |entry| {
-                var info = typs.get(entry.key_ptr.*).?;
-                std.debug.print("\n    {{id: {}, data: {any} }},", .{ info.id, entry.value_ptr.* });
-            }
-            std.debug.print("\n  ],\n}}\n", .{});
-        }
-    }).print_archetype;
-
-    _ = print_archetype;
-
     const Thing = struct { a: u32, b: i16 };
     const Thang = struct { c: f32 };
 
@@ -495,6 +482,4 @@ test "Entities" {
     // // create, createWith, createAs
     var ent1 = try entities.create();
     std.debug.print("\nent1: {}, pointer: {?}\n", .{ ent1, entities.pointers.get(ent1) });
-    // var void_arch = entities.archetypes.get(entities.void_archetype_id).?;
-    // print_archetype(&types, &void_arch);
 }
