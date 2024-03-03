@@ -1,7 +1,18 @@
-TODO: 
+ECS Framework
+  Traits
+  Interfaces
+  TypeManager
+    - to name or not to name, that is the question:
+      - register(config)
+        - config = struct {}
+      - id(Type), idByName("assigned_module_name.assigned_type_name")
+  Archetypes
+  Events
+  Multithreading
 
-ECS v2
-Graph
-Custom string parsing (runtime)
-  - "This is a  <red>{prefab.name}</red> with durability of <rgb col="123,213,46">${durability}</rgb>"
-Rendering
+Systems
+  Console Rendering System
+  Transform System
+  Prefab + Scene System
+  Serialization System
+  
