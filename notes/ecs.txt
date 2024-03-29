@@ -1,51 +1,62 @@
-Using this code as a starting point: https://devlog.hexops.com/2022/lets-build-ecs-part-2-databases/
+Types
+  map (TypeID, Type)
+  Type {
+    id, mod, name, namespace, size, alignment,
+    dynamic struct {init, deinit, get, getRaw, set, setRaw},
+    init, deinit, print
+  }
 
-Refactor
-  - Types struct, maps type info to type ids.
-    ✓ name
-    - size, alignment
-  - archetype.columns = hashmap(TypeID, ArrayList(u8))
-    - compute size, alignment, and offset -> cast To/From Type
-    - utilities, Type checking
-  - Archetypes gain a list of shared_ids, column_keys, columns is just an ArrayList(Column)
-    ✓ shared_ids and column_keys are sorted asc at Archetype creation, assumed sorted from then on
-    ✓ set component
-    - remove component
-    - create shared component
-    - set shared component
-    - remove shared component
-    - delete shared component
-    - bulk operations (add many, remove many, new with...)
-  - Archetypes fn to return: EntityPayload -> .{id: EntityID, components: HashMapUnmanaged(TypeID, *[]u8), shared: ArrayList(SharedID)}
-  - Entity Queries, used for iteration, entity testing. 
-    .has() .none() .has_shared() .none_shared() .where(callback) .test(entity) .testAll(entities) .run() .iterator() .toList()
-  - deleted EntityID are saved in Entities, ideally as an ArrayList(EntityIDRange{.low: u32, .high: u32}), to encapsulate large spans of deleted IDs (single values are both low and high?)
-  - Prefabs + Variances
-  - serialization: human-readable (debugging, sharing cross platform) and binary (local and fast)
-  - parallel / thread-safe?
+Archetype {
+  id,
+  entity_ids: List(EntityID),
+  shared_ids: List(SharedID),
+  component_ids: List(TypeID),
+  columns: map(Type, List(u8))
 
+  init, deinit, print
+  create, destroy
+  get, set
 
+  Signature {
+    shared_ids: List(SharedID),
+    component_ids: List(TypeID),
 
-pub const Blackboard = struct { 
-  map: AutoHashMap(TypeID, []u8)
-  get(T) T
-  has(T) bool
-  set(anytype) void
-  remove(T) void
+    init, deinit
+    addComponent, removeComponent
+    addShared, removeShared
+    hash
+  }
 }
 
-pub const Archetype = struct {
-  hash
-  entity_ids: ArrayListUnmanaged(EntityID)
-  shared_ids: ArrayListUnmanaged(EntityID)
-  // https://devlog.hexops.com/2022/zig-hashmaps-explained/#array-hash-maps
-  // order keys at creation, necessary for hashing
-  columns: AutoArrayHashMapUnmanaged(TypeID, ArrayListUnmanaged(u8))
-  hash(col_keys, shared_ids) u32
-  init() / deinit()
-  new() row_index
-  get(row_index, T) T
-  set(row_index, T) void
-  remove(row_index) !void
-  pop() !void
+Shared {
+  map: Map(SharedID, SharedEntry)
+
+  SharedEntry{
+    id: SharedID,
+    Type: Type,
+    name: []u8,
+    buffer: []u8
+  }
+
+  init, deinit
+  has, get, set
+}
+
+Query {
+  ...
+}
+
+World {
+  alloc
+  types
+  shared
+  pointers
+  archetypes
+
+  init, deinit
+
+  create, destroy
+
+  has, get, set
+  getRaw, setRaw
 }

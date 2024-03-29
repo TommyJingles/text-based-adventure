@@ -1,27 +1,28 @@
+const Types = @This();
 const std = @import("std");
 const Writer = std.io.Writer;
 const Allocator = std.mem.Allocator;
 const Traits = @import("./traits.zig");
 const Trait = Traits.Trait;
-const hash = std.hash.Murmur3_32.hash;
-pub const TypeID = u32;
+const hash = @import("./common.zig").hash;
+const TypeID = @import("./common.zig").TypeID;
 
-map: std.AutoHashMap(u32, Info),
+map: std.AutoHashMap(TypeID, Info),
 
-pub fn init(alloc: Allocator) @This() {
-    return .{
-        .map = std.AutoHashMap(u32, Info).init(alloc),
+pub fn init(alloc: Allocator) Types {
+    return Types{
+        .map = std.AutoHashMap(TypeID, Info).init(alloc),
     };
 }
 
-pub fn deinit(self: *@This()) void {
+pub fn deinit(self: *Types) void {
     self.map.deinit();
 }
 
 // unregisterType?
 
-pub fn registerType(self: *@This(), comptime conf: Config) *Info {
-    const id: u32 = hash(conf.name);
+pub fn registerType(self: *Types, comptime conf: Config) *Info {
+    const id: TypeID = TypeID{ .val = hash(conf.name) };
     if (self.map.contains(id)) {
         return self.map.getPtr(id).?;
     } else {
@@ -31,7 +32,11 @@ pub fn registerType(self: *@This(), comptime conf: Config) *Info {
     }
 }
 
-pub fn getByName(self: *@This(), name: []const u8) ?*Info {
+pub fn get(self: *Types, tid: TypeID) ?*Info {
+    return self.map.getPtr(tid);
+}
+
+pub fn getByName(self: *Types, name: []const u8) ?*Info {
     var itr = self.map.valueIterator();
     while (itr.next()) |inf| {
         if (std.mem.eql(u8, inf.name, name)) {
@@ -41,7 +46,7 @@ pub fn getByName(self: *@This(), name: []const u8) ?*Info {
     return null;
 }
 
-pub fn getByNamespace(self: *@This(), namespace: []const u8) ?*Info {
+pub fn getByNamespace(self: *Types, namespace: []const u8) ?*Info {
     var itr = self.map.valueIterator();
     while (itr.next()) |inf| {
         if (std.mem.eql(u8, inf.namespace, namespace)) {
@@ -55,7 +60,7 @@ test "types" {
     const TestVector = struct { x: f32 = 0, y: f32 = 0, z: f32 = 0 };
 
     var alloc = std.testing.allocator;
-    var types = @This().init(alloc);
+    var types = Types.init(alloc);
     defer types.deinit();
 
     var info = types.registerType(.{ .name = "My Vector", .type = TestVector });
@@ -65,8 +70,8 @@ test "types" {
 
     try info.print(&list);
 
-    std.debug.assert(std.meta.eql(info, types.getByName("My Vector").?.*));
-    std.debug.assert(std.meta.eql(info, types.getByNamespace("Types.test.types.TestVector").?.*));
+    std.debug.assert(std.meta.eql(info, types.getByName("My Vector").?));
+    std.debug.assert(std.meta.eql(info, types.getByNamespace("Types.test.types.TestVector").?));
 
     std.debug.print("\n{s}\n", .{list.items});
 }
@@ -80,33 +85,33 @@ pub const Config = struct {
     // serialize, deserialize, netPack, netUnpack
 };
 
+pub const Dynamic = struct {
+    init: *const fn (Allocator, []u8) void,
+    deinit: *const fn (Allocator, []u8) void,
+    print: *const fn (*std.ArrayList(u8), usize, []u8) void,
+    // serialize, deserialize, netPack, netUnpack
+};
+
 pub const Info = struct {
-    id: u32,
+    id: TypeID,
     name: []const u8,
     namespace: []const u8,
     size: usize,
     alignment: u16,
-    // tags? fields -> {offset, type_id}?
-    dynamic: DynamicFns,
+    dynamic: Dynamic,
     _print: *const fn (*Info, *std.ArrayList(u8)) anyerror!void,
-    // _type: *const fn(*Info, comptime name: []const u8) type,
 
-    pub const DynamicFns = struct {
-        init: *const fn (Allocator, []u8) void,
-        deinit: *const fn (Allocator, []u8) void,
-        print: *const fn (*std.ArrayList(u8), usize, []u8) void,
-        // serialize, deserialize, netPack, netUnpack
-    };
+    pub const InfoError = error{InvalidCast};
 
     pub fn init(comptime conf: Config) Info {
         const info = Info{
             //preserve formatting
-            .id = hash(conf.name),
+            .id = TypeID{ .val = hash(conf.name) },
             .name = conf.name,
             .namespace = @typeName(conf.type),
             .size = @sizeOf(conf.type),
             .alignment = @alignOf(conf.type),
-            .dynamic = DynamicFns{
+            .dynamic = Dynamic{
                 .init = init_blk: {
                     const InitsStruct = struct {
                         pub fn init_no_alloc(_: Allocator, bytes: []u8) void {
@@ -171,7 +176,7 @@ pub const Info = struct {
                                 var value: *conf.type = @ptrCast(@alignCast(bytes.ptr));
 
                                 list.appendNTimes(' ', indent * 2) catch unreachable;
-                                writer.print("\"{s}\" = {{", .{conf.name}) catch unreachable;
+                                writer.print("\"{s}\" = {s} {{", .{ conf.name, @typeName(conf.type) }) catch unreachable;
 
                                 const tti = @typeInfo(conf.type);
                                 inline for (tti.Struct.fields) |f| {
@@ -245,11 +250,125 @@ pub const Info = struct {
     pub fn print(self: *Info, list: *std.ArrayList(u8)) !void {
         try self._print(self, list);
     }
+
+    pub fn writeToBytes(self: *Info, bytes: []u8, value: anytype) !void {
+        if (self.size == bytes.len and self.size == @sizeOf(@TypeOf(value))) {
+            var as_bytes: []u8 = @ptrCast(@alignCast(@constCast(std.mem.asBytes(&value))));
+            std.mem.copyForwards(u8, bytes, as_bytes);
+        } else {
+            return InfoError.InvalidCast;
+        }
+    }
+
+    pub fn overwrite(self: *Info, bytes: []u8, value: []u8) !void {
+        if (self.size == bytes.len and self.size == value.len) {
+            std.mem.copyForwards(u8, bytes, value);
+        } else {
+            return InfoError.InvalidCast;
+        }
+    }
+
+    pub fn asBytes(self: *Info, value_ptr: anytype) ![]u8 {
+        var bytes: []u8 = @ptrCast(@alignCast(@constCast(std.mem.asBytes(value_ptr))));
+        if (self.size == bytes.len) {
+            return bytes;
+        } else {
+            return InfoError.InvalidCast;
+        }
+    }
+
+    pub fn asType(self: *Info, comptime T: type, value: []u8) !*T {
+        if (self.size == value.len and value.len == @sizeOf(T)) {
+            var casted_value: *T = @ptrCast(@alignCast(value.ptr));
+            return casted_value;
+        } else {
+            return InfoError.InvalidCast;
+        }
+    }
 };
+
+test "Info_casting" {
+    const TestVector = struct { x: u32 = 0, y: u32 = 0, z: u32 = 0 };
+    var alloc = std.testing.allocator;
+    var info = Info.init(.{ .name = "my_vec", .type = TestVector });
+
+    var bytes = try alloc.alloc(u8, info.size);
+    defer alloc.free(bytes);
+
+    std.debug.print("\nbytes: {any}", .{bytes});
+    std.debug.print("\nasType: {}\n", .{try info.asType(TestVector, bytes)});
+
+    info.dynamic.init(alloc, bytes);
+
+    std.debug.print("\nbytes: {any}", .{bytes});
+    std.debug.print("\nasType: {}\n", .{try info.asType(TestVector, bytes)});
+
+    try info.writeToBytes(bytes, TestVector{ .x = 1, .y = 2, .z = 3 });
+
+    std.debug.print("\nbytes: {any}", .{bytes});
+    std.debug.print("\nasType: {}\n", .{try info.asType(TestVector, bytes)});
+
+    var tv: TestVector = TestVector{ .x = 5, .y = 5, .z = 5 };
+    var as_bytes: []u8 = try info.asBytes(&tv);
+    std.debug.print("\ntv: {}", .{tv});
+    std.debug.print("\nas_bytes: {any}\n", .{as_bytes});
+    std.debug.print("\nas_bytes -> asType: {}\n", .{try info.asType(TestVector, as_bytes)});
+}
+
+test "Info_writeToBytes" {
+    const TestVector = struct { x: u32 = 0, y: u32 = 0, z: u32 = 0 };
+
+    var alloc = std.testing.allocator;
+    var list = try std.ArrayList(u8).initCapacity(alloc, 1024);
+    defer list.deinit();
+
+    var info = Info.init(.{ .name = "my_vec", .type = TestVector });
+
+    var vec_bytes = try alloc.alloc(u8, info.size);
+    defer alloc.free(vec_bytes);
+
+    info.dynamic.init(alloc, vec_bytes);
+    try list.appendSlice("before: ");
+    info.dynamic.print(&list, 0, vec_bytes);
+
+    try info.writeToBytes(vec_bytes, TestVector{ .x = 5, .y = 6, .z = 7 });
+
+    try list.appendSlice("\n\nafter: ");
+    info.dynamic.print(&list, 0, vec_bytes);
+
+    std.debug.print("\n{s}\n", .{list.items});
+}
+
+test "Info_asBytes" {
+    const TestVector = struct { x: u32 = 0, y: u32 = 0, z: u32 = 0 };
+
+    var alloc = std.testing.allocator;
+    var list = try std.ArrayList(u8).initCapacity(alloc, 1024);
+    defer list.deinit();
+
+    var info = Info.init(.{ .name = "my_vec", .type = TestVector });
+
+    var bytes: []u8 = try info.asBytes(&TestVector{ .x = 5, .y = 6, .z = 7 });
+    info.dynamic.print(&list, 0, bytes);
+    std.debug.print("\n{s}\n", .{list.items});
+}
+
+test "Info_asType" {
+    const TestVector = struct { x: u32 = 3, y: u32 = 2, z: u32 = 1 };
+
+    var alloc = std.testing.allocator;
+
+    var info = Info.init(.{ .name = "my_vec", .type = TestVector });
+
+    var bytes = try alloc.alloc(u8, info.size);
+    defer alloc.free(bytes);
+    info.dynamic.init(alloc, bytes);
+
+    std.debug.print("\n{}\n", .{try info.asType(TestVector, bytes)});
+}
 
 test "Info" {
     const TestVector = struct { x: f32 = 0, y: f32 = 0, z: f32 = 0 };
-
     const NestedList = struct {
         list: std.ArrayList(u8),
 

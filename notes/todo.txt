@@ -1,18 +1,40 @@
 ECS Framework
-  Traits
-  Interfaces
-  TypeManager
-    - to name or not to name, that is the question:
-      - register(config)
-        - config = struct {}
-      - id(Type), idByName("assigned_module_name.assigned_type_name")
-  Archetypes
-  Events
-  Multithreading
+  Type / Traits
+    - field to store an core type
+    - some types cannot be allowed:
+      - opaque (though *opaque is okay)
+    - verify:
+      - enum, union, tagged union, 
+    - test:
+      - decls
+      - std collections
 
-Systems
-  Console Rendering System
-  Transform System
-  Prefab + Scene System
-  Serialization System
-  
+  Column / Archetype
+    - bulk ops
+    - testing
+  Shared
+  Queries
+  Systems
+  Modules
+  World
+  lib?
+  Thread Pool
+  Serialization
+
+File IO  
+Input
+Rendering
+  - windowing / input
+  - webgpu / sysgpu
+  - text / 2D
+  - UI / vector graphics
+  - 3D
+    - culling, lighting, shadows, ...
+Physics
+Audio
+Netcode
+    - server / client
+    - pipeline
+    - truncation / compression
+    - rollback / prediction
+    - headless

@@ -1,0 +1,35 @@
+Table
+    size: usize                           // how many rows exist
+    capacity: usize                       // row storage capacity (this creates trailing 'gaps' behind each column's bytes within data)
+    column_sizes: []usize                 // order dependant, byte size of whatever the type the column will be comprised of. a column byte slice is data[offset..offset + rows * size]
+    column_head_index: []usize            // the starting byte index for each column
+    row_size: usize                       // sum of column_sizes
+    data: []u8                            // every column byte list smashed into one, order dependant, for cache efficiency
+    table_lock: RwLock                    // a master lock, used for anything that changes the size of data (add, remove) or a context where parallel is not wanted (i think)
+    col_locks: []RwLock                   // a lock per column
+    row_locks: []RwLock                   // a lock per row
+
+    Write to a Cell:
+        if (!unsafe)
+            verify the write u8 slice len is the same as the destination column size
+            if(table_lock == lock) wait
+            if(column == locked and row == locked) wait
+            else if(column == locked and row == unlocked) lock row, defer row unlock
+            else if(column == unlocked and row == locked) lock column, defer column unlock
+        write to cell
+
+    init (alloc, column_sizes: []usize) ByteTable
+    deinit (alloc) void
+
+    read (column_index, row_index) []u8       
+    write (alloc, column_index, row_index, cell_data: []u8) void
+    add (alloc) row_index
+    remove (alloc, row_index) void
+
+
+    Iterator(alloc) ...
+    Spliterator(alloc, numThreads) ...
+
+
+    serialize (writer)
+        output bytes = [column_count, ...column_sizes, row_count, ...bytes]
